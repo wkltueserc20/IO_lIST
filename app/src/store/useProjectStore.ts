@@ -3,6 +3,14 @@ import type { Device, IORow, ProjectData, MainSystemBrand } from '../types';
 
 const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
 
+type HistorySnapshot = {
+  projectName: string;
+  mainSystem: MainSystemBrand;
+  dataTypes: string[];
+  devices: Device[];
+  selectedDeviceId: string | null;
+};
+
 function newRow(): IORow {
   return {
     id: crypto.randomUUID(),
@@ -22,6 +30,7 @@ interface ProjectStore {
   selectedDeviceId: string | null;
   hasUnsavedChanges: boolean;
   fileHandle: FileSystemFileHandle | null;
+  past: HistorySnapshot[];
 
   // Project
   setProjectName: (name: string) => void;
@@ -41,6 +50,7 @@ interface ProjectStore {
   deleteIORow: (deviceId: string, type: 'send' | 'receive', rowId: string) => void;
   updateIORow: (deviceId: string, type: 'send' | 'receive', rowId: string, field: keyof IORow, value: string) => void;
   insertRowsAfter: (deviceId: string, type: 'send' | 'receive', afterIndex: number, rows: Partial<IORow>[]) => void;
+  clearCellRange: (deviceId: string, type: 'send' | 'receive', cells: { rowId: string; field: keyof IORow }[]) => void;
 
   // Data Types
   addDataType: (name: string) => boolean;
@@ -61,7 +71,26 @@ interface ProjectStore {
   setTableClipboard: (cb: { colKeys: (keyof IORow)[]; data: string[][] } | null) => void;
   pasteClipboard: (deviceId: string, type: 'send' | 'receive', startRowIdx: number) => number;
 
+  // Undo
+  undo: () => void;
+
   markSaved: () => void;
+}
+
+function snap(s: ProjectStore): HistorySnapshot {
+  return {
+    projectName: s.projectName,
+    mainSystem: s.mainSystem,
+    dataTypes: s.dataTypes,
+    devices: s.devices,
+    selectedDeviceId: s.selectedDeviceId,
+  };
+}
+
+function pushPast(past: HistorySnapshot[], entry: HistorySnapshot): HistorySnapshot[] {
+  const next = [...past, entry];
+  if (next.length > 50) next.shift();
+  return next;
 }
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
@@ -72,9 +101,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   selectedDeviceId: null,
   hasUnsavedChanges: false,
   fileHandle: null,
+  past: [],
 
-  setProjectName: (name) => set({ projectName: name, hasUnsavedChanges: true }),
-  setMainSystem: (brand) => set({ mainSystem: brand, hasUnsavedChanges: true }),
+  setProjectName: (name) => set((s) => ({ past: pushPast(s.past, snap(s)), projectName: name, hasUnsavedChanges: true })),
+  setMainSystem: (brand) => set((s) => ({ past: pushPast(s.past, snap(s)), mainSystem: brand, hasUnsavedChanges: true })),
   setFileHandle: (handle) => set({ fileHandle: handle }),
 
   loadProject: (data) => set({
@@ -84,6 +114,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     devices: data.devices,
     selectedDeviceId: data.devices[0]?.id ?? null,
     hasUnsavedChanges: false,
+    past: [],
   }),
 
   getProjectData: (): ProjectData => {
@@ -99,6 +130,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   addDevice: (name) => {
     const device: Device = { id: crypto.randomUUID(), name, sendIO: [], receiveIO: [] };
     set((s) => ({
+      past: pushPast(s.past, snap(s)),
       devices: [...s.devices, device],
       selectedDeviceId: device.id,
       hasUnsavedChanges: true,
@@ -110,12 +142,13 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     const selectedDeviceId = s.selectedDeviceId === id
       ? (devices[0]?.id ?? null)
       : s.selectedDeviceId;
-    return { devices, selectedDeviceId, hasUnsavedChanges: true };
+    return { past: pushPast(s.past, snap(s)), devices, selectedDeviceId, hasUnsavedChanges: true };
   }),
 
   selectDevice: (id) => set({ selectedDeviceId: id }),
 
   renameDevice: (id, name) => set((s) => ({
+    past: pushPast(s.past, snap(s)),
     devices: s.devices.map((d) => d.id === id ? { ...d, name } : d),
     hasUnsavedChanges: true,
   })),
@@ -123,6 +156,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   addIORow: (deviceId, type) => {
     const row = newRow();
     set((s) => ({
+      past: pushPast(s.past, snap(s)),
       devices: s.devices.map((d) => {
         if (d.id !== deviceId) return d;
         const key = type === 'send' ? 'sendIO' : 'receiveIO';
@@ -134,6 +168,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   deleteIORow: (deviceId, type, rowId) => set((s) => ({
+    past: pushPast(s.past, snap(s)),
     devices: s.devices.map((d) => {
       if (d.id !== deviceId) return d;
       const key = type === 'send' ? 'sendIO' : 'receiveIO';
@@ -143,6 +178,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   })),
 
   updateIORow: (deviceId, type, rowId, field, value) => set((s) => ({
+    past: pushPast(s.past, snap(s)),
     devices: s.devices.map((d) => {
       if (d.id !== deviceId) return d;
       const key = type === 'send' ? 'sendIO' : 'receiveIO';
@@ -152,6 +188,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   })),
 
   insertRowsAfter: (deviceId, type, afterIndex, rows) => set((s) => ({
+    past: pushPast(s.past, snap(s)),
     devices: s.devices.map((d) => {
       if (d.id !== deviceId) return d;
       const key = type === 'send' ? 'sendIO' : 'receiveIO';
@@ -163,6 +200,25 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
         ...existing.slice(afterIndex + 1),
       ];
       return { ...d, [key]: updated };
+    }),
+    hasUnsavedChanges: true,
+  })),
+
+  clearCellRange: (deviceId, type, cells) => set((s) => ({
+    past: pushPast(s.past, snap(s)),
+    devices: s.devices.map((d) => {
+      if (d.id !== deviceId) return d;
+      const key = type === 'send' ? 'sendIO' : 'receiveIO';
+      return {
+        ...d,
+        [key]: d[key].map((r) => {
+          const fields = cells.filter((c) => c.rowId === r.id).map((c) => c.field);
+          if (fields.length === 0) return r;
+          const updated = { ...r };
+          fields.forEach((f) => { (updated as unknown as Record<string, string>)[f as string] = ''; });
+          return updated;
+        }),
+      };
     }),
     hasUnsavedChanges: true,
   })),
@@ -180,7 +236,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   },
 
   batchReplaceAddress: (searchTerm, replaceTerm, targetColumns, scope, currentDeviceId, matchType) => {
-    const norm = (s: string) => s.trim().toUpperCase();
+    const norm = (str: string) => str.trim().toUpperCase();
     const escaped = searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(escaped, 'gi');
 
@@ -193,8 +249,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     };
 
     let count = 0;
-
-    const newDevices = get().devices.map((device) => {
+    const currentDevices = get().devices;
+    const newDevices = currentDevices.map((device) => {
       if (scope === 'current' && device.id !== currentDeviceId) return device;
 
       const replaceRows = (rows: IORow[]) =>
@@ -210,7 +266,7 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       return { ...device, sendIO: replaceRows(device.sendIO), receiveIO: replaceRows(device.receiveIO) };
     });
 
-    set({ devices: newDevices, hasUnsavedChanges: true });
+    set((cur) => ({ past: pushPast(cur.past, snap(cur)), devices: newDevices, hasUnsavedChanges: true }));
     return count;
   },
 
@@ -221,7 +277,8 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     if (!tableClipboard) return 0;
     const { colKeys, data } = tableClipboard;
     let count = 0;
-    const newDevices = get().devices.map((device) => {
+    const currentDevices = get().devices;
+    const newDevices = currentDevices.map((device) => {
       if (device.id !== deviceId) return device;
       const storeKey = type === 'send' ? 'sendIO' : 'receiveIO';
       const rowList = [...device[storeKey]];
@@ -240,9 +297,23 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
       });
       return { ...device, [storeKey]: rowList };
     });
-    set({ devices: newDevices, hasUnsavedChanges: true });
+    set((cur) => ({ past: pushPast(cur.past, snap(cur)), devices: newDevices, hasUnsavedChanges: true }));
     return count;
   },
+
+  undo: () => set((s) => {
+    if (s.past.length === 0) return {};
+    const prev = s.past[s.past.length - 1];
+    return {
+      past: s.past.slice(0, -1),
+      projectName: prev.projectName,
+      mainSystem: prev.mainSystem,
+      dataTypes: prev.dataTypes,
+      devices: prev.devices,
+      selectedDeviceId: prev.selectedDeviceId,
+      hasUnsavedChanges: true,
+    };
+  }),
 
   markSaved: () => set({ hasUnsavedChanges: false }),
 }));

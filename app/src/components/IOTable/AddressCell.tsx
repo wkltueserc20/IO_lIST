@@ -11,9 +11,11 @@ interface Props {
   isLast?: boolean;
   placeholder?: string;
   isConflict?: boolean;
+  isEditing: boolean;
+  onEndEdit: () => void;
 }
 
-export function AddressCell({ value, rowIndex, onChange, onFill, onEnterLast, isLast, placeholder = '如：DM0', isConflict = false }: Props) {
+export function AddressCell({ value, rowIndex, onChange, onFill, onEnterLast, isLast, placeholder = '如：DM0', isConflict = false, isEditing, onEndEdit }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [previewCount, setPreviewCount] = useState(0);
@@ -60,6 +62,8 @@ export function AddressCell({ value, rowIndex, onChange, onFill, onEnterLast, is
         placeholder={placeholder}
         onEnterLast={onEnterLast}
         isLast={isLast}
+        isEditing={isEditing}
+        onEndEdit={onEndEdit}
       />
       {value && (
         <div

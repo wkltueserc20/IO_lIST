@@ -1,57 +1,57 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface Props {
   value: string;
   onChange: (value: string) => void;
+  isEditing: boolean;
+  onEndEdit: () => void;
   placeholder?: string;
   onEnterLast?: () => void;
   isLast?: boolean;
-  inputRef?: React.RefObject<HTMLInputElement>;
 }
 
-export function EditableCell({ value, onChange, placeholder, onEnterLast, isLast, inputRef: externalRef }: Props) {
-  const [editing, setEditing] = useState(false);
+export function EditableCell({ value, onChange, isEditing, onEndEdit, placeholder, onEnterLast, isLast }: Props) {
   const [draft, setDraft] = useState(value);
-  const internalRef = useRef<HTMLInputElement>(null);
-  const ref = externalRef || internalRef;
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { setDraft(value); }, [value]);
+  // Sync draft to external value when not editing
+  useEffect(() => {
+    if (!isEditing) setDraft(value);
+  }, [value, isEditing]);
 
-  const commit = () => {
-    onChange(draft);
-    setEditing(false);
-  };
+  // Explicit focus after React commits the render — more reliable than autoFocus
+  // in React 18 concurrent mode where autoFocus can fire before the DOM is ready.
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing]);
+
+  const commit = () => { onChange(draft); onEndEdit(); };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      commit();
-      if (isLast) onEnterLast?.();
-    }
-    if (e.key === 'Escape') { setDraft(value); setEditing(false); }
-    if (e.key === 'Tab') commit();
+    if (e.key === 'Enter') { commit(); if (isLast) onEnterLast?.(); }
+    if (e.key === 'Escape') { setDraft(value); onEndEdit(); }
+    if (e.key === 'Tab') { e.preventDefault(); commit(); }
   };
 
-  if (editing) {
+  if (isEditing) {
     return (
       <input
-        ref={ref}
+        ref={inputRef}
         className="cell-input"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        autoFocus
       />
     );
   }
 
   return (
-    <div
-      className="cell-display"
-      onClick={() => { setDraft(value); setEditing(true); }}
-      title={value || placeholder}
-    >
+    <div className="cell-display" title={value || placeholder}>
       {value || <span className="cell-placeholder">{placeholder}</span>}
     </div>
   );

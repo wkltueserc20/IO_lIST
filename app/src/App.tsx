@@ -7,6 +7,7 @@ import './App.css';
 
 function App() {
   const hasUnsavedChanges = useProjectStore((s) => s.hasUnsavedChanges);
+  const undo = useProjectStore((s) => s.undo);
 
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -18,6 +19,19 @@ function App() {
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [hasUnsavedChanges]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (document.activeElement as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        undo();
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undo]);
 
   return (
     <div className="app-layout">
