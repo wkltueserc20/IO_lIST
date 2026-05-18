@@ -44,6 +44,9 @@ interface ProjectStore {
   deleteDevice: (id: string) => void;
   selectDevice: (id: string | null) => void;
   renameDevice: (id: string, name: string) => void;
+  reorderDevices: (fromId: string, toId: string) => void;
+  updateDeviceSettings: (id: string, ip: string, port: string) => void;
+  checkDuplicateIP: (ip: string, port: string, excludeId: string) => { type: 'none' | 'warn' | 'error'; deviceName?: string };
 
   // IO Rows
   addIORow: (deviceId: string, type: 'send' | 'receive') => string;
@@ -152,6 +155,32 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
     devices: s.devices.map((d) => d.id === id ? { ...d, name } : d),
     hasUnsavedChanges: true,
   })),
+
+  reorderDevices: (fromId, toId) => set((s) => {
+    if (fromId === toId) return {};
+    const devices = [...s.devices];
+    const fromIdx = devices.findIndex((d) => d.id === fromId);
+    const toIdx = devices.findIndex((d) => d.id === toId);
+    if (fromIdx === -1 || toIdx === -1) return {};
+    const [moved] = devices.splice(fromIdx, 1);
+    devices.splice(toIdx, 0, moved);
+    return { past: pushPast(s.past, snap(s)), devices, hasUnsavedChanges: true };
+  }),
+
+  updateDeviceSettings: (id, ip, port) => set((s) => ({
+    past: pushPast(s.past, snap(s)),
+    devices: s.devices.map((d) => d.id === id ? { ...d, ip, port } : d),
+    hasUnsavedChanges: true,
+  })),
+
+  checkDuplicateIP: (ip, port, excludeId) => {
+    if (!ip) return { type: 'none' };
+    const others = get().devices.filter((d) => d.id !== excludeId && d.ip === ip);
+    if (others.length === 0) return { type: 'none' };
+    const samePort = others.find((d) => d.port === port);
+    if (samePort) return { type: 'error', deviceName: samePort.name };
+    return { type: 'warn', deviceName: others[0].name };
+  },
 
   addIORow: (deviceId, type) => {
     const row = newRow();

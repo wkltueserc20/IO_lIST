@@ -140,6 +140,22 @@ body {
 
 .device-item:hover { background: #f5f7ff; }
 .device-item.selected { background: #e8efff; border-left: 3px solid #3b7ddd; }
+.device-item-dragging { opacity: 0.4; }
+.device-item-drag-over { border-top: 2px solid #3b7ddd; background: #f0f5ff; }
+
+.device-drag-handle {
+  color: #bbb;
+  font-size: 14px;
+  cursor: grab;
+  padding: 0 4px 0 0;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.device-item:hover .device-drag-handle { opacity: 1; }
+.device-item-dragging .device-drag-handle { opacity: 1; cursor: grabbing; }
 
 .device-name {
   flex: 1;
@@ -757,3 +773,91 @@ body {
   color: #16a34a;
   margin-left: 3px;
 }
+
+/* ── IP Badge ────────────────────────────────────────────── */
+.ip-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-family: monospace;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.ip-badge:hover { opacity: 0.82; box-shadow: 0 0 0 2px rgba(0,0,0,0.08); }
+
+.ip-badge-ok    { background: #dcfce7; color: #166534; border-color: #86efac; }
+.ip-badge-warn  { background: #fef9c3; color: #713f12; border-color: #fde047; }
+.ip-badge-error { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+.ip-badge-unset { background: #f3f4f6; color: #6b7280; border-color: #d1d5db; font-family: inherit; }
+
+/* ── Device Settings Modal ───────────────────────────────── */
+.device-settings-modal { width: 440px; }
+
+.ds-tab-bar {
+  display: flex;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  padding: 0 18px;
+}
+
+.ds-tab {
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7280;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ds-tab:hover { color: #374151; }
+.ds-tab.active { color: #3b7ddd; border-bottom-color: #3b7ddd; }
+
+.ds-input-group {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ds-port-input { width: 120px; }
+
+.ds-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ds-chip {
+  padding: 3px 10px;
+  font-size: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 12px;
+  background: #f9fafb;
+  color: #374151;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.ds-chip:hover { border-color: #3b7ddd; color: #3b7ddd; background: #eff6ff; }
+.ds-chip.active { border-color: #3b7ddd; background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+
+.ds-msg {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.ds-msg-error { color: #dc2626; }
+.ds-msg-warn  { color: #b45309; }
+
+.input-error { border-color: #f87171 !important; box-shadow: 0 0 0 2px rgba(239,68,68,0.18) !important; }

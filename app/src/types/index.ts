@@ -18,6 +18,8 @@ export interface IORow {
 export interface Device {
   id: string;
   name: string;
+  ip?: string;
+  port?: string;
   sendIO: IORow[];
   receiveIO: IORow[];
 }

@@ -83,9 +83,27 @@ function downloadJSON(data: ProjectData): void {
 export function exportToExcel(data: ProjectData): void {
   const wb = XLSX.utils.book_new();
 
+  // 設備清單 Sheet（第一個）
+  const summaryRows: (string | number)[][] = [
+    ['設備名稱', 'IP 位址', 'Port', '備註'],
+    ...data.devices.map((d) => [
+      d.name,
+      d.ip || '（未設定）',
+      d.port || '',
+      '',
+    ]),
+  ];
+  const summaryWs = XLSX.utils.aoa_to_sheet(summaryRows);
+  XLSX.utils.book_append_sheet(wb, summaryWs, '設備清單');
+
+  // 各設備 IO Sheet
   for (const device of data.devices) {
+    const ipMeta = `設備：${device.name}    IP：${device.ip || '未設定'}    Port：${device.port || '—'}`;
     const rows: (string | number)[][] = [];
     const headers = ['設備名稱', '設備IO點位位址', '訊號名稱', '資料類型', '主系統點位位址', '備註'];
+
+    rows.push([ipMeta]);
+    rows.push([]);
 
     rows.push(['▼ 設備發送 IO']);
     rows.push(headers);

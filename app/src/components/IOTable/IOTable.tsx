@@ -13,13 +13,19 @@ interface Props {
   rows: IORow[];
   mainSystemPlaceholder: string;
   conflictingAddresses: Set<string>;
+  collapsed: boolean;
+  onCollapseToggle: () => void;
+  sorting: SortState;
+  onSortingChange: (s: SortState) => void;
+  showCompleteOnly: boolean;
+  onShowCompleteOnlyChange: (v: boolean) => void;
 }
 
 const EDITABLE_COLS: (keyof IORow)[] = [
   'deviceAddress', 'signalName', 'dataType', 'mainSystemAddress', 'remark',
 ];
 
-type SortState = { key: keyof IORow; dir: 'asc' | 'desc' } | null;
+export type SortState = { key: keyof IORow; dir: 'asc' | 'desc' } | null;
 
 const COLUMNS = [
   { id: 'deviceName',        header: '設備名稱',       width: 120, selIdx: null as null | number, sortKey: null as null | keyof IORow },
@@ -36,6 +42,7 @@ let activeTableKey = '';
 
 export function IOTable({
   deviceId, deviceName, type, rows, mainSystemPlaceholder, conflictingAddresses,
+  collapsed, onCollapseToggle, sorting, onSortingChange, showCompleteOnly, onShowCompleteOnlyChange,
 }: Props) {
   const {
     updateIORow, deleteIORow, addIORow, insertRowsAfter,
@@ -45,9 +52,6 @@ export function IOTable({
   const tableKey = `${deviceId}-${type}`;
 
   // ─── React state (causes re-renders) ──────────────────────────────
-  const [sorting, setSorting]                   = useState<SortState>(null);
-  const [collapsed, setCollapsed]               = useState(false);
-  const [showCompleteOnly, setShowCompleteOnly] = useState(false);
   const [editingCell, setEditingCell]           = useState<{ row: number; col: number } | null>(null);
   const [isDragging, setIsDragging]             = useState(false);
   const [selAnchor, setSelAnchor]               = useState<{ row: number; col: number } | null>(null);
@@ -172,12 +176,12 @@ export function IOTable({
   }, []);
 
   const toggleSort = useCallback((key: keyof IORow) => {
-    setSorting((prev) => {
-      if (!prev || prev.key !== key) return { key, dir: 'asc' };
-      if (prev.dir === 'asc')        return { key, dir: 'desc' };
-      return null;
-    });
-  }, []);
+    onSortingChange(
+      !sorting || sorting.key !== key ? { key, dir: 'asc' }
+      : sorting.dir === 'asc'         ? { key, dir: 'desc' }
+      : null
+    );
+  }, [sorting, onSortingChange]);
 
   // ─── Mouse handlers ───────────────────────────────────────────────
   const handleTableMouseDown = useCallback((e: React.MouseEvent<HTMLTableElement>) => {
@@ -348,7 +352,10 @@ export function IOTable({
       }
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (activeTableKey === tableKey) activeTableKey = '';
+    };
   }, [tableKey]);
 
   // ─── Render ───────────────────────────────────────────────────────
@@ -357,7 +364,7 @@ export function IOTable({
   return (
     <div className="io-table-section">
       {/* ── Header bar ─────────────────────────────────────────────── */}
-      <div className="io-table-label collapsible-label" onClick={() => setCollapsed((c) => !c)}>
+      <div className="io-table-label collapsible-label" onClick={onCollapseToggle}>
         <span className="collapse-icon">{collapsed ? '▶' : '▼'}</span>
         {baseLabel}
         <span className="row-count-badge">
@@ -365,7 +372,7 @@ export function IOTable({
         </span>
         <button
           className={`filter-toggle-btn${showCompleteOnly ? ' active' : ''}`}
-          onClick={(e) => { e.stopPropagation(); setShowCompleteOnly((v) => !v); }}
+          onClick={(e) => { e.stopPropagation(); onShowCompleteOnlyChange(!showCompleteOnly); }}
           title={showCompleteOnly ? '顯示全部' : '只顯示完整資料行'}
         >
           {showCompleteOnly ? '全部展開' : '只看完整'}
