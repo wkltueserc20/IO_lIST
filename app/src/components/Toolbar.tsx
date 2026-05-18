@@ -138,6 +138,7 @@ export function Toolbar() {
         <button onClick={handleSaveAs} title="另存新檔">
           📄 另存新檔
         </button>
+        <div className="toolbar-sep" />
         <button onClick={handleExport}>📊 匯出 Excel</button>
       </div>
       <input ref={fileInputRef} type="file" accept=".json" style={{ display: 'none' }} onChange={handleFileChange} />

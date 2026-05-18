@@ -65,6 +65,13 @@ export function MainContent() {
 
   const placeholder = PLACEHOLDERS[mainSystem] || '自訂位址';
 
+  const sendTotal = device.sendIO.length;
+  const receiveTotal = device.receiveIO.length;
+  const totalIO = sendTotal + receiveTotal;
+  const sendComplete = device.sendIO.filter((r) => r.deviceAddress.trim() && r.signalName.trim()).length;
+  const receiveComplete = device.receiveIO.filter((r) => r.deviceAddress.trim() && r.signalName.trim()).length;
+  const totalComplete = sendComplete + receiveComplete;
+
   const dupResult = device.ip
     ? checkDuplicateIP(device.ip, device.port ?? '', device.id)
     : { type: 'none' as const };
@@ -93,6 +100,19 @@ export function MainContent() {
         <button className="batch-replace-btn" onClick={() => setShowBatchReplace(true)}>
           ⚡ 批量替換
         </button>
+      </div>
+      <div className="device-stats-bar">
+        <span className="device-stat-send">↑ 發送 {sendTotal}</span>
+        <span className="device-stat-sep">·</span>
+        <span className="device-stat-recv">↓ 接收 {receiveTotal}</span>
+        {totalIO > 0 && (
+          <>
+            <span className="device-stat-sep">·</span>
+            <span className={totalComplete === totalIO ? 'device-stat-done' : ''}>
+              完整 {totalComplete}/{totalIO}（{Math.round((totalComplete / totalIO) * 100)}%）
+            </span>
+          </>
+        )}
       </div>
       {showSettings && (
         <DeviceSettingsModal device={device} onClose={() => setShowSettings(false)} />

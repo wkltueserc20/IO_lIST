@@ -362,7 +362,7 @@ export function IOTable({
   const baseLabel = type === 'send' ? '設備發送 IO' : '設備接受 IO';
 
   return (
-    <div className="io-table-section">
+    <div className={`io-table-section io-table-section-${type}`}>
       {/* ── Header bar ─────────────────────────────────────────────── */}
       <div className="io-table-label collapsible-label" onClick={onCollapseToggle}>
         <span className="collapse-icon">{collapsed ? '▶' : '▼'}</span>

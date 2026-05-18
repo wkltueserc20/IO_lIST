@@ -132,7 +132,7 @@ body {
 .device-item {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
+  padding: 8px 12px;
   cursor: pointer;
   border-bottom: 1px solid #f0f0f0;
   transition: background 0.1s;
@@ -861,3 +861,189 @@ body {
 .ds-msg-warn  { color: #b45309; }
 
 .input-error { border-color: #f87171 !important; box-shadow: 0 0 0 2px rgba(239,68,68,0.18) !important; }
+
+/* ── Device Item 升級：雙欄佈局 ──────────────────────────── */
+.device-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.device-item-row1 {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.device-item-row2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.device-ip-dot {
+  font-size: 10px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+.device-ip-dot-none  { color: #ccc; }
+.device-ip-dot-ok    { color: #16a34a; }
+.device-ip-dot-warn  { color: #d97706; }
+.device-ip-dot-error { color: #dc2626; }
+
+.device-progress-bar {
+  flex: 1;
+  height: 3px;
+  background: #e9ecef;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.device-progress-fill {
+  height: 100%;
+  background: #3b7ddd;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.device-complete-count {
+  font-size: 10px;
+  color: #aaa;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.device-rename-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid #3b7ddd;
+  border-radius: 3px;
+  padding: 0 5px;
+  height: 20px;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(59,125,221,0.15);
+}
+
+/* ── Send / Receive 色彩語意 ─────────────────────────────── */
+.io-table-section-send .io-table-label {
+  border-left: 3px solid #3b7ddd;
+}
+
+.io-table-section-receive .io-table-label {
+  border-left: 3px solid #0d9488;
+  background: #f0fdfa;
+}
+
+.io-table-section-receive .collapsible-label:hover { background: #e0f7f4; }
+
+.io-table-section-receive .row-count-badge {
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+/* ── Device Header Stats ─────────────────────────────────── */
+.device-stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #888;
+  margin-top: -10px;
+  margin-bottom: 14px;
+}
+
+.device-stat-send { color: #3b7ddd; font-weight: 500; }
+.device-stat-recv { color: #0d9488; font-weight: 500; }
+.device-stat-done { color: #16a34a; font-weight: 500; }
+.device-stat-sep  { color: #ddd; }
+
+/* ── Toolbar Separator ───────────────────────────────────── */
+.toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255,255,255,0.25);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+/* ── Shortcut Help FAB ───────────────────────────────────── */
+.shortcut-fab {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #1e2a3a;
+  color: rgba(255,255,255,0.75);
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+  transition: background 0.15s, color 0.15s;
+}
+.shortcut-fab:hover { background: #2d3e52; color: #fff; }
+
+.shortcut-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 199;
+}
+
+.shortcut-panel {
+  position: fixed;
+  bottom: 60px;
+  right: 20px;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.14);
+  width: 230px;
+  z-index: 200;
+  overflow: hidden;
+}
+
+.shortcut-panel-header {
+  padding: 9px 14px;
+  background: #1e2a3a;
+  color: rgba(255,255,255,0.9);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+}
+
+.shortcut-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.shortcut-row:last-child { border-bottom: none; }
+
+.shortcut-desc { color: #555; }
+
+.shortcut-keys { display: flex; gap: 3px; }
+
+.shortcut-keys kbd {
+  background: #f1f3f5;
+  border: 1px solid #dee2e6;
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  font-family: inherit;
+  color: #444;
+  white-space: nowrap;
+}
