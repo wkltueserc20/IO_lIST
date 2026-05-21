@@ -113,17 +113,6 @@ function pushPast(past: HistorySnapshot[], entry: HistorySnapshot): HistorySnaps
   return next;
 }
 
-function newRowWithDefaults(partial: Partial<IORow> = {}): IORow {
-  return {
-    id: crypto.randomUUID(),
-    deviceAddress: '',
-    signalName: '',
-    dataType: '',
-    mainSystemAddress: '',
-    remark: '',
-    ...partial,
-  };
-}
 
 export const useProjectStore = create<ProjectStore>((set, get) => ({
   projectName: '未命名專案',
