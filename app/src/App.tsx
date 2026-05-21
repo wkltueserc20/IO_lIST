@@ -173,16 +173,16 @@ function App() {
         } catch { /* silent auto-save failure */ }
       });
 
-      // Close-requested protection (read from window ref to always get latest value)
-      unlistenClose = await appWindow.onCloseRequested(async (event) => {
-        event.preventDefault();
-        const unsaved = (window as unknown as Record<string, unknown>).__ioHasUnsaved__ as boolean;
-        if (!unsaved) {
-          await appWindow.destroy();
+      // Close-requested: Rust always intercepts X button and emits this event
+      const { invoke } = await import('@tauri-apps/api/core');
+      unlistenClose = await listen('close-requested', async () => {
+        const hasUnsaved = useProjectStore.getState().hasUnsavedChanges;
+        if (!hasUnsaved) {
+          await invoke('close_window');
           return;
         }
         const ok = await confirm('有未存儲的變更，確定要關閉嗎？', { title: 'IO 設備通訊對照表', kind: 'warning' });
-        if (ok) await appWindow.destroy();
+        if (ok) await invoke('close_window');
       });
     })();
 
@@ -209,6 +209,11 @@ function App() {
   // ── Sync dynamic refs used by one-time Tauri event handlers ──
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__ioHasUnsaved__ = hasUnsavedChanges;
+    if (isTauri()) {
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('set_unsaved_state', { hasUnsaved: hasUnsavedChanges });
+      });
+    }
   }, [hasUnsavedChanges]);
 
   useEffect(() => {

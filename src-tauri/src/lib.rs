@@ -1,8 +1,11 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+
+static HAS_UNSAVED_CHANGES: AtomicBool = AtomicBool::new(false);
 
 // ── Commands ───────────────────────────────────────────────────
 
@@ -34,6 +37,18 @@ fn write_file_base64(path: String, content: String) -> Result<(), String> {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_unsaved_state(has_unsaved: bool) {
+    HAS_UNSAVED_CHANGES.store(has_unsaved, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn close_window(app: AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        window.destroy().ok();
+    }
 }
 
 #[tauri::command]
@@ -176,7 +191,13 @@ pub fn run() {
             }
             app.emit("menu-action", id).ok();
         })
-        .invoke_handler(tauri::generate_handler![read_file, write_file, read_file_base64, write_file_base64, get_app_data_dir])
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                window.emit("close-requested", ()).ok();
+            }
+        })
+        .invoke_handler(tauri::generate_handler![read_file, write_file, read_file_base64, write_file_base64, get_app_data_dir, set_unsaved_state, close_window])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
