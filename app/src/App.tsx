@@ -129,9 +129,7 @@ function App() {
 
     (async () => {
       const { listen } = await import('@tauri-apps/api/event');
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const { confirm } = await import('@tauri-apps/plugin-dialog');
-      const appWindow = getCurrentWindow();
 
       // Menu action events from Rust
       unlistenMenu = await listen<string>('menu-action', async ({ payload }) => {
