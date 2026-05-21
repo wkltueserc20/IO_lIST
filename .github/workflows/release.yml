@@ -52,3 +52,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           projectPath: '.'
+          args: '--bundles nsis'
