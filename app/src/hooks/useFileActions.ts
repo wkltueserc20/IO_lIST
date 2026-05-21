@@ -7,10 +7,12 @@ import {
   openFileWithPicker,
   loadFromJSON,
   exportToExcel,
+  importFromExcel,
   addToRecentFiles,
   saveRecentFiles,
 } from '../utils/fileUtils';
-import type { ProjectData } from '../types';
+import type { ProjectData, MainSystemBrand } from '../types';
+import type { ParsedResult } from '../utils/excelImport';
 
 const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
 
@@ -26,7 +28,7 @@ export function useFileActions() {
     getProjectData, loadProject, markSaved, showSavedTip,
     currentFilePath, setCurrentFilePath,
     recentFiles, setRecentFiles,
-    hasUnsavedChanges,
+    hasUnsavedChanges, showExportTip,
   } = useProjectStore();
 
   const persistRecent = async (path: string) => {
@@ -110,7 +112,41 @@ export function useFileActions() {
     }
   };
 
-  const handleExport = () => exportToExcel(getProjectData());
+  const handleExport = async () => {
+    try {
+      const exported = await exportToExcel(getProjectData(), currentFilePath);
+      if (exported) showExportTip();
+    } catch (e) {
+      alert('匯出 Excel 失敗：' + (e as Error).message);
+    }
+  };
+
+  const handleImportExcel = async (): Promise<{ result: ParsedResult; fileName: string } | null> => {
+    try {
+      return await importFromExcel();
+    } catch (e) {
+      alert('開啟 Excel 失敗：' + (e as Error).message);
+      return null;
+    }
+  };
+
+  const handleConfirmImport = (result: ParsedResult, mainSystem: MainSystemBrand) => {
+    const projectData: ProjectData = {
+      project: result.projectName,
+      mainSystem,
+      dataTypes: result.dataTypes,
+      devices: result.devices.map((d) => ({
+        id: crypto.randomUUID(),
+        name: d.name,
+        ip: d.ip,
+        port: d.port,
+        sendIO: d.sendIO,
+        receiveIO: d.receiveIO,
+      })),
+    };
+    loadProject(projectData);
+    setCurrentFilePath(null);
+  };
 
   const handleFileInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -132,6 +168,8 @@ export function useFileActions() {
     handleSave,
     handleSaveAs,
     handleExport,
+    handleImportExcel,
+    handleConfirmImport,
     handleFileInputChange,
   };
 }

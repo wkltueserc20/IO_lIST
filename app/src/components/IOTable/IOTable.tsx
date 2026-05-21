@@ -3,7 +3,9 @@ import { useProjectStore } from '../../store/useProjectStore';
 import { EditableCell } from './EditableCell';
 import { DataTypeCell } from './DataTypeCell';
 import { AddressCell } from './AddressCell';
+import { ContextMenu } from './ContextMenu';
 import { naturalSortAddress } from '../../utils/addressUtils';
+import { useTableKeyboard } from '../../hooks/useTableKeyboard';
 import type { IORow } from '../../types';
 
 interface Props {
@@ -19,6 +21,8 @@ interface Props {
   onSortingChange: (s: SortState) => void;
   showCompleteOnly: boolean;
   onShowCompleteOnlyChange: (v: boolean) => void;
+  highlightRowId?: string | null;
+  clearHighlight?: () => void;
 }
 
 const EDITABLE_COLS: (keyof IORow)[] = [
@@ -28,7 +32,8 @@ const EDITABLE_COLS: (keyof IORow)[] = [
 export type SortState = { key: keyof IORow; dir: 'asc' | 'desc' } | null;
 
 const COLUMNS = [
-  { id: 'deviceName',        header: '設備名稱',       width: 120, selIdx: null as null | number, sortKey: null as null | keyof IORow },
+  { id: 'dragHandle',        header: '',               width: 24,  selIdx: null as null | number, sortKey: null as null | keyof IORow },
+  { id: 'deviceName',        header: '設備名稱',       width: 120, selIdx: null, sortKey: null },
   { id: 'deviceAddress',     header: '設備IO點位位址',  width: 160, selIdx: 0,   sortKey: 'deviceAddress'     as keyof IORow },
   { id: 'signalName',        header: '訊號名稱',       width: 150, selIdx: 1,   sortKey: null },
   { id: 'dataType',          header: '資料類型',       width: 110, selIdx: 2,   sortKey: null },
@@ -40,13 +45,20 @@ const COLUMNS = [
 // Module-level key so keyboard handler knows which table was last interacted with
 let activeTableKey = '';
 
+function loadColumnWidths(): Record<string, number> {
+  try { return JSON.parse(localStorage.getItem('io-column-widths') ?? '{}') ?? {}; }
+  catch { return {}; }
+}
+
 export function IOTable({
   deviceId, deviceName, type, rows, mainSystemPlaceholder, conflictingAddresses,
   collapsed, onCollapseToggle, sorting, onSortingChange, showCompleteOnly, onShowCompleteOnlyChange,
+  highlightRowId, clearHighlight,
 }: Props) {
   const {
     updateIORow, deleteIORow, addIORow, insertRowsAfter,
     setTableClipboard, tableClipboard, pasteClipboard, clearCellRange,
+    reorderIORows,
   } = useProjectStore();
 
   const tableKey = `${deviceId}-${type}`;
@@ -58,6 +70,15 @@ export function IOTable({
   const [selEnd, setSelEnd]                     = useState<{ row: number; col: number } | null>(null);
   const [copyDone, setCopyDone]                 = useState(false);
   const [pasteResult, setPasteResult]           = useState<number | null>(null);
+  const [dragRowId, setDragRowId]               = useState<string | null>(null);
+  const [dragOverRowId, setDragOverRowId]       = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu]                   = useState<{ x: number; y: number; rowId: string; rowIdx: number } | null>(null);
+  const [columnWidths, setColumnWidths]         = useState<Record<string, number>>(() => {
+    const saved = loadColumnWidths();
+    const defaults: Record<string, number> = {};
+    COLUMNS.forEach((c) => { defaults[c.id] = saved[c.id] ?? c.width; });
+    return defaults;
+  });
 
   // ─── Refs (synchronous, no re-render needed) ─────────────────────
   // selectedCellRef tracks the currently-selected 1×1 cell.
@@ -75,6 +96,19 @@ export function IOTable({
   const rowsRef          = useRef(rows);         rowsRef.current = rows;
   const selRectRef       = useRef<typeof selRect>(null);
   const tableClipboardRef = useRef(tableClipboard); tableClipboardRef.current = tableClipboard;
+
+  const isActive = useCallback(() => activeTableKey === tableKey, [tableKey]);
+
+  // ─── Highlight row scroll + auto-clear ───────────────────────────
+  useEffect(() => {
+    if (!highlightRowId) return;
+    const id = setTimeout(() => clearHighlight?.(), 2000);
+    const frame = requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-highlight-row="${highlightRowId}"]`) as HTMLElement | null;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    return () => { clearTimeout(id); cancelAnimationFrame(frame); };
+  }, [highlightRowId, clearHighlight]);
 
   // ─── Derived rows ─────────────────────────────────────────────────
   const displayRows = useMemo(
@@ -144,19 +178,25 @@ export function IOTable({
     [rows, deviceId, type, updateIORow, insertRowsAfter],
   );
 
-  const handleAddRow         = () => addIORow(deviceId, type);
-  const handleEnterOnLastRow = () => addIORow(deviceId, type);
+  const handleAddRow = () => addIORow(deviceId, type);
+
+  const { pendingInitialCharRef, handleTabOut, handleEnterFromCell } = useTableKeyboard({
+    tableKey, isActive, rows, editingCell, setEditingCell,
+    setSelAnchor, setSelEnd, selectedCellRef, selRectRef, pasteRowRef,
+    deviceId, type, showCompleteOnly, addIORow, updateIORow,
+  });
 
   // ─── onEndEdit factory ────────────────────────────────────────────
   const makeOnEndEdit = useCallback(
     (origIdx: number, colIdx: number) => () => {
+      pendingInitialCharRef.current = undefined;
       setEditingCell(null);
       selectedCellRef.current = { row: origIdx, col: colIdx };
       setSelAnchor({ row: origIdx, col: colIdx });
       setSelEnd({ row: origIdx, col: colIdx });
       pasteRowRef.current = origIdx;
     },
-    [],
+    [pendingInitialCharRef],
   );
 
   // ─── Selection rect ───────────────────────────────────────────────
@@ -327,11 +367,32 @@ export function IOTable({
     clearCellRange(deviceId, type, cells);
   }, [deviceId, type, clearCellRange]);
 
+  const handleResizeStart = useCallback((colId: string, defaultWidth: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = columnWidths[colId] ?? defaultWidth;
+    const onMove = (me: MouseEvent) => {
+      const next = Math.min(600, Math.max(60, startWidth + me.clientX - startX));
+      setColumnWidths((prev) => ({ ...prev, [colId]: next }));
+    };
+    const onUp = (me: MouseEvent) => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      const next = Math.min(600, Math.max(60, startWidth + me.clientX - startX));
+      const saved = loadColumnWidths();
+      saved[colId] = next;
+      localStorage.setItem('io-column-widths', JSON.stringify(saved));
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [columnWidths]);
+
   const handleCopyRef   = useRef(handleCopy);   handleCopyRef.current   = handleCopy;
   const handlePasteRef  = useRef(handlePaste);  handlePasteRef.current  = handlePaste;
   const handleDeleteRef = useRef(handleDelete); handleDeleteRef.current = handleDelete;
 
-  // ─── Keyboard handler ─────────────────────────────────────────────
+  // ─── Keyboard handler (copy/paste/delete/escape) ──────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (activeTableKey !== tableKey) return;
@@ -417,7 +478,7 @@ export function IOTable({
                     return (
                       <th
                         key={col.id}
-                        style={{ width: col.width }}
+                        style={{ width: columnWidths[col.id] ?? col.width, position: 'relative', overflow: 'visible' }}
                         className={col.sortKey ? 'sortable-header' : ''}
                         onClick={col.sortKey ? () => toggleSort(col.sortKey!) : undefined}
                       >
@@ -427,12 +488,36 @@ export function IOTable({
                             {isSorted ? (sorting!.dir === 'asc' ? ' ↑' : ' ↓') : ' ↕'}
                           </span>
                         )}
+                        {col.id !== 'actions' && (
+                          <div
+                            className="col-resize-handle"
+                            onMouseDown={(e) => handleResizeStart(col.id, col.width, e)}
+                            onDoubleClick={() => {
+                              setColumnWidths((prev) => ({ ...prev, [col.id]: col.width }));
+                              const saved = loadColumnWidths();
+                              delete saved[col.id];
+                              localStorage.setItem('io-column-widths', JSON.stringify(saved));
+                            }}
+                          />
+                        )}
                       </th>
                     );
                   })}
                 </tr>
               </thead>
-              <tbody>
+              <tbody
+                onContextMenu={(e) => {
+                  const td = (e.target as HTMLElement).closest('td') as HTMLElement | null;
+                  if (!td) return;
+                  const rowStr = td.dataset.row;
+                  if (rowStr === undefined) return;
+                  const origIdx = parseInt(rowStr, 10);
+                  const row = rows[origIdx];
+                  if (!row) return;
+                  e.preventDefault();
+                  setCtxMenu({ x: e.clientX, y: e.clientY, rowId: row.id, rowIdx: origIdx });
+                }}
+              >
                 {sortedRows.length === 0 ? (
                   <tr>
                     <td colSpan={COLUMNS.length} className="empty-table-hint">
@@ -445,12 +530,46 @@ export function IOTable({
                   sortedRows.map((row) => {
                     const origIdx    = rows.findIndex((r) => r.id === row.id);
                     const isComplete = !!(row.deviceAddress.trim() && row.signalName.trim());
+                    const isConflictRow = !!row.mainSystemAddress && conflictingAddresses.has(row.mainSystemAddress.trim().toUpperCase());
                     const sel        = (c: number) => isCellSelected(origIdx, c) ? 'cell-selected' : '';
                     const enter      = (c: number) =>
                       (e: React.MouseEvent) => handleCellMouseEnter(e, origIdx, c);
 
+                    const isDraggingRow  = dragRowId === row.id;
+                    const isDragOver    = dragOverRowId === row.id && dragRowId !== row.id;
+                    const canDrag       = sorting === null;
+                    const isHighlighted = highlightRowId === row.id;
+
                     return (
-                      <tr key={row.id} className={`io-row${isComplete ? ' io-row-complete' : ''}`}>
+                      <tr
+                        key={row.id}
+                        className={[
+                          'io-row',
+                          isComplete    ? 'io-row-complete'  : '',
+                          isDraggingRow ? 'io-row-dragging'  : '',
+                          isDragOver    ? 'io-row-drag-over' : '',
+                          isHighlighted ? 'io-row-highlight' : '',
+                        ].filter(Boolean).join(' ')}
+                        data-conflict={isConflictRow ? 'true' : undefined}
+                        data-highlight-row={row.id}
+                        draggable={canDrag}
+                        onDragStart={() => setDragRowId(row.id)}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverRowId(row.id); }}
+                        onDrop={() => {
+                          if (dragRowId && dragRowId !== row.id)
+                            reorderIORows(deviceId, type, dragRowId, row.id);
+                          setDragRowId(null); setDragOverRowId(null);
+                        }}
+                        onDragEnd={() => { setDragRowId(null); setDragOverRowId(null); }}
+                      >
+
+                        {/* 拖曳把手 */}
+                        <td className="drag-handle-cell">
+                          <span
+                            className="row-drag-handle"
+                            title={canDrag ? '拖曳排序' : '請先清除欄位排序才能拖曳列'}
+                          >⠿</span>
+                        </td>
 
                         {/* 設備名稱 (read-only, not selectable) */}
                         <td>
@@ -462,10 +581,12 @@ export function IOTable({
                           <AddressCell
                             value={row.deviceAddress} rowIndex={origIdx}
                             onChange={(v) => update(row.id, 'deviceAddress', v)}
-                            onFill={handleFill} onEnterLast={handleEnterOnLastRow}
-                            isLast={origIdx === rows.length - 1}
+                            onFill={handleFill}
                             isEditing={editingCell?.row === origIdx && editingCell?.col === 0}
                             onEndEdit={makeOnEndEdit(origIdx, 0)}
+                            onTabOut={(dir) => handleTabOut(origIdx, 0, dir)}
+                            onEnterOut={() => handleEnterFromCell(origIdx, 0)}
+                            initialChar={editingCell?.row === origIdx && editingCell?.col === 0 ? pendingInitialCharRef.current : undefined}
                           />
                         </td>
 
@@ -473,10 +594,12 @@ export function IOTable({
                         <td data-row={origIdx} data-col={1} className={sel(1)} onMouseEnter={enter(1)}>
                           <EditableCell
                             value={row.signalName} onChange={(v) => update(row.id, 'signalName', v)}
-                            placeholder="訊號名稱" onEnterLast={handleEnterOnLastRow}
-                            isLast={origIdx === rows.length - 1}
+                            placeholder="訊號名稱"
                             isEditing={editingCell?.row === origIdx && editingCell?.col === 1}
                             onEndEdit={makeOnEndEdit(origIdx, 1)}
+                            onTabOut={(dir) => handleTabOut(origIdx, 1, dir)}
+                            onEnterOut={() => handleEnterFromCell(origIdx, 1)}
+                            initialChar={editingCell?.row === origIdx && editingCell?.col === 1 ? pendingInitialCharRef.current : undefined}
                           />
                         </td>
 
@@ -486,6 +609,7 @@ export function IOTable({
                             value={row.dataType} onChange={(v) => update(row.id, 'dataType', v)}
                             isEditing={editingCell?.row === origIdx && editingCell?.col === 2}
                             onEndEdit={makeOnEndEdit(origIdx, 2)}
+                            onTabOut={(dir) => handleTabOut(origIdx, 2, dir)}
                           />
                         </td>
 
@@ -494,8 +618,7 @@ export function IOTable({
                           <AddressCell
                             value={row.mainSystemAddress} rowIndex={origIdx}
                             onChange={(v) => update(row.id, 'mainSystemAddress', v)}
-                            onFill={handleFillMainSystem} onEnterLast={handleEnterOnLastRow}
-                            isLast={origIdx === rows.length - 1}
+                            onFill={handleFillMainSystem}
                             placeholder={mainSystemPlaceholder}
                             isConflict={
                               !!row.mainSystemAddress &&
@@ -503,6 +626,9 @@ export function IOTable({
                             }
                             isEditing={editingCell?.row === origIdx && editingCell?.col === 3}
                             onEndEdit={makeOnEndEdit(origIdx, 3)}
+                            onTabOut={(dir) => handleTabOut(origIdx, 3, dir)}
+                            onEnterOut={() => handleEnterFromCell(origIdx, 3)}
+                            initialChar={editingCell?.row === origIdx && editingCell?.col === 3 ? pendingInitialCharRef.current : undefined}
                           />
                         </td>
 
@@ -510,10 +636,12 @@ export function IOTable({
                         <td data-row={origIdx} data-col={4} className={sel(4)} onMouseEnter={enter(4)}>
                           <EditableCell
                             value={row.remark} onChange={(v) => update(row.id, 'remark', v)}
-                            placeholder="備註" onEnterLast={handleEnterOnLastRow}
-                            isLast={origIdx === rows.length - 1}
+                            placeholder="備註"
                             isEditing={editingCell?.row === origIdx && editingCell?.col === 4}
                             onEndEdit={makeOnEndEdit(origIdx, 4)}
+                            onTabOut={(dir) => handleTabOut(origIdx, 4, dir)}
+                            onEnterOut={() => handleEnterFromCell(origIdx, 4)}
+                            initialChar={editingCell?.row === origIdx && editingCell?.col === 4 ? pendingInitialCharRef.current : undefined}
                           />
                         </td>
 
@@ -537,6 +665,43 @@ export function IOTable({
             <button className="add-row-btn" onClick={handleAddRow}>＋ 新增行</button>
           )}
         </>
+      )}
+
+      {ctxMenu && (
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          items={[
+            {
+              label: '在上方插入列',
+              onClick: () => insertRowsAfter(deviceId, type, ctxMenu.rowIdx - 1, [{}]),
+            },
+            {
+              label: '在下方插入列',
+              onClick: () => insertRowsAfter(deviceId, type, ctxMenu.rowIdx, [{}]),
+            },
+            {
+              label: '複製選取範圍',
+              disabled: !selRectRef.current,
+              onClick: () => handleCopyRef.current(),
+            },
+            {
+              label: '貼上',
+              disabled: !tableClipboard,
+              onClick: () => handlePasteRef.current(),
+            },
+            {
+              label: '清除選取範圍',
+              disabled: !selRectRef.current,
+              onClick: () => handleDeleteRef.current(),
+            },
+            {
+              label: '刪除列',
+              onClick: () => deleteIORow(deviceId, type, ctxMenu.rowId),
+            },
+          ]}
+        />
       )}
     </div>
   );

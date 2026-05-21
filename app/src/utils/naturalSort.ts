@@ -27,12 +27,15 @@ export function buildMainSystemRows(devices: Device[]): MainSystemRow[] {
         rows.push({
           mainSystemAddress: row.mainSystemAddress,
           direction: 'recv',
+          deviceId: device.id,
           deviceName: device.name,
           deviceAddress: row.deviceAddress,
           signalName: row.signalName,
           dataType: row.dataType,
           remark: row.remark,
           isDuplicate: false,
+          rowId: row.id,
+          ioType: 'send',
         });
       }
     }
@@ -41,12 +44,15 @@ export function buildMainSystemRows(devices: Device[]): MainSystemRow[] {
         rows.push({
           mainSystemAddress: row.mainSystemAddress,
           direction: 'send',
+          deviceId: device.id,
           deviceName: device.name,
           deviceAddress: row.deviceAddress,
           signalName: row.signalName,
           dataType: row.dataType,
           remark: row.remark,
           isDuplicate: false,
+          rowId: row.id,
+          ioType: 'receive',
         });
       }
     }

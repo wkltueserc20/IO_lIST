@@ -13,7 +13,7 @@ interface Props {
 }
 
 export function DeviceItem({ device, isDragging, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }: Props) {
-  const { selectedDeviceId, selectDevice, deleteDevice, renameDevice, checkDuplicateIP, setViewMode } = useProjectStore();
+  const { selectedDeviceId, selectDevice, deleteDevice, renameDevice, cloneDevice, checkDuplicateIP, setViewMode } = useProjectStore();
   const isSelected = selectedDeviceId === device.id;
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState('');
@@ -46,6 +46,11 @@ export function DeviceItem({ device, isDragging, isDragOver, onDragStart, onDrag
         : ipStatus.type === 'warn'  ? ` (與 ${ipStatus.deviceName} 同 IP)`
         : ''
       }`;
+
+  const handleClone = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    cloneDevice(device.id);
+  };
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -118,6 +123,7 @@ export function DeviceItem({ device, isDragging, isDragOver, onDragStart, onDrag
         )}
       </div>
 
+      <button className="device-clone-btn" onClick={handleClone} title="複製設備">⧉</button>
       <button className="device-delete-btn" onClick={handleDelete} title="刪除設備">✕</button>
     </div>
   );

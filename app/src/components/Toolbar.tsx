@@ -12,8 +12,14 @@ const BRANDS: { value: MainSystemBrand; label: string }[] = [
   { value: 'Custom', label: '自訂 (Custom)' },
 ];
 
-export function Toolbar() {
-  const { projectName, mainSystem, setProjectName, setMainSystem, currentFilePath, hasUnsavedChanges, savedTip, viewMode, setViewMode } =
+interface ToolbarProps {
+  onImportExcel?: () => void;
+  colorScheme: 'light' | 'dark';
+  onToggleColorScheme: () => void;
+}
+
+export function Toolbar({ onImportExcel, colorScheme, onToggleColorScheme }: ToolbarProps) {
+  const { projectName, mainSystem, setProjectName, setMainSystem, currentFilePath, hasUnsavedChanges, savedTip, exportTip, viewMode, setViewMode } =
     useProjectStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { handleNew, handleOpen, handleSave, handleSaveAs, handleExport, handleFileInputChange } = useFileActions();
@@ -63,7 +69,13 @@ export function Toolbar() {
         </button>
         <button onClick={handleSaveAs} title="另存新檔">📄 另存新檔</button>
         <div className="toolbar-sep" />
-        <button onClick={handleExport}>📊 匯出 Excel</button>
+        <button onClick={onImportExcel}>📂 開啟 Excel</button>
+        <button onClick={handleExport}>{exportTip ? '✓ 已匯出' : '📊 匯出 Excel'}</button>
+        <button onClick={() => window.print()} title="列印 / 匯出 PDF">🖨️ 列印</button>
+        <div className="toolbar-sep" />
+        <button onClick={onToggleColorScheme} title="切換深色/淺色模式">
+          {colorScheme === 'dark' ? '☀️ 淺色' : '🌙 深色'}
+        </button>
       </div>
 
       <input

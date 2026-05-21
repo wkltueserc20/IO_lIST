@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useProjectStore } from '../store/useProjectStore';
 import { IOTable } from './IOTable/IOTable';
 import type { SortState } from './IOTable/IOTable';
@@ -6,6 +6,8 @@ import { DataTypeManager } from './IOTable/DataTypeManager';
 import { BatchReplaceModal } from './IOTable/BatchReplaceModal';
 import { DeviceSettingsModal } from './IOTable/DeviceSettingsModal';
 import { MainSystemView } from './MainSystemView/MainSystemView';
+import { ConflictBadge } from './ConflictBadge';
+import { EmptyDeviceGuide } from './EmptyDeviceGuide';
 import { findConflictingAddresses } from '../utils/addressUtils';
 import type { MainSystemBrand } from '../types';
 
@@ -30,8 +32,20 @@ const PLACEHOLDERS: Record<MainSystemBrand, string> = {
   Custom: '自訂位址',
 };
 
-export function MainContent() {
-  const { devices, selectedDeviceId, mainSystem, checkDuplicateIP, viewMode } = useProjectStore();
+interface HighlightTarget {
+  deviceId: string;
+  rowId: string;
+  ioType: 'send' | 'receive';
+}
+
+interface Props {
+  highlightTarget: HighlightTarget | null;
+  clearHighlight: () => void;
+  onNavigate: (deviceId: string, rowId: string, ioType: 'send' | 'receive') => void;
+}
+
+export function MainContent({ highlightTarget, clearHighlight, onNavigate }: Props) {
+  const { devices, selectedDeviceId, mainSystem, checkDuplicateIP, viewMode, addIORow } = useProjectStore();
   const [showBatchReplace, setShowBatchReplace] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [tableStates, setTableStates] = useState<Record<string, TablePersistState>>({});
@@ -48,6 +62,13 @@ export function MainContent() {
     }));
   };
 
+  // Auto-expand table when navigating to a highlight target
+  useEffect(() => {
+    if (!highlightTarget) return;
+    patchTableState(highlightTarget.deviceId, highlightTarget.ioType, { collapsed: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlightTarget]);
+
   // 計算所有設備的主系統點位位址重複集合（跨設備全域偵測）
   const conflictingAddresses = useMemo(() => {
     const allAddresses = devices.flatMap((d) =>
@@ -57,7 +78,7 @@ export function MainContent() {
   }, [devices]);
 
   if (viewMode === 'main-system') {
-    return <MainSystemView devices={devices} />;
+    return <MainSystemView devices={devices} onNavigate={onNavigate} />;
   }
 
   if (!device) {
@@ -105,6 +126,10 @@ export function MainContent() {
         <button className="batch-replace-btn" onClick={() => setShowBatchReplace(true)}>
           ⚡ 批量替換
         </button>
+        <ConflictBadge
+          conflictCount={conflictingAddresses.size}
+          onClick={() => document.querySelector('[data-conflict="true"]')?.scrollIntoView({ behavior: 'smooth' })}
+        />
       </div>
       <div className="device-stats-bar">
         <span className="device-stat-send">↑ 發送 {sendTotal}</span>
@@ -128,36 +153,49 @@ export function MainContent() {
           onClose={() => setShowBatchReplace(false)}
         />
       )}
-      <IOTable
-        key={`${device.id}-send`}
-        deviceId={device.id}
-        deviceName={device.name}
-        type="send"
-        rows={device.sendIO}
-        mainSystemPlaceholder={placeholder}
-        conflictingAddresses={conflictingAddresses}
-        collapsed={getTableState(device.id, 'send').collapsed}
-        onCollapseToggle={() => patchTableState(device.id, 'send', { collapsed: !getTableState(device.id, 'send').collapsed })}
-        sorting={getTableState(device.id, 'send').sorting}
-        onSortingChange={(s) => patchTableState(device.id, 'send', { sorting: s })}
-        showCompleteOnly={getTableState(device.id, 'send').showCompleteOnly}
-        onShowCompleteOnlyChange={(v) => patchTableState(device.id, 'send', { showCompleteOnly: v })}
-      />
-      <IOTable
-        key={`${device.id}-receive`}
-        deviceId={device.id}
-        deviceName={device.name}
-        type="receive"
-        rows={device.receiveIO}
-        mainSystemPlaceholder={placeholder}
-        conflictingAddresses={conflictingAddresses}
-        collapsed={getTableState(device.id, 'receive').collapsed}
-        onCollapseToggle={() => patchTableState(device.id, 'receive', { collapsed: !getTableState(device.id, 'receive').collapsed })}
-        sorting={getTableState(device.id, 'receive').sorting}
-        onSortingChange={(s) => patchTableState(device.id, 'receive', { sorting: s })}
-        showCompleteOnly={getTableState(device.id, 'receive').showCompleteOnly}
-        onShowCompleteOnlyChange={(v) => patchTableState(device.id, 'receive', { showCompleteOnly: v })}
-      />
+      {device.sendIO.length === 0 && device.receiveIO.length === 0 ? (
+        <EmptyDeviceGuide
+          onAddSend={() => addIORow(device.id, 'send')}
+          onAddReceive={() => addIORow(device.id, 'receive')}
+        />
+      ) : (
+        <>
+          <IOTable
+            key={`${device.id}-send`}
+            deviceId={device.id}
+            deviceName={device.name}
+            type="send"
+            rows={device.sendIO}
+            mainSystemPlaceholder={placeholder}
+            conflictingAddresses={conflictingAddresses}
+            collapsed={getTableState(device.id, 'send').collapsed}
+            onCollapseToggle={() => patchTableState(device.id, 'send', { collapsed: !getTableState(device.id, 'send').collapsed })}
+            sorting={getTableState(device.id, 'send').sorting}
+            onSortingChange={(s) => patchTableState(device.id, 'send', { sorting: s })}
+            showCompleteOnly={getTableState(device.id, 'send').showCompleteOnly}
+            onShowCompleteOnlyChange={(v) => patchTableState(device.id, 'send', { showCompleteOnly: v })}
+            highlightRowId={highlightTarget?.deviceId === device.id && highlightTarget?.ioType === 'send' ? highlightTarget.rowId : null}
+            clearHighlight={clearHighlight}
+          />
+          <IOTable
+            key={`${device.id}-receive`}
+            deviceId={device.id}
+            deviceName={device.name}
+            type="receive"
+            rows={device.receiveIO}
+            mainSystemPlaceholder={placeholder}
+            conflictingAddresses={conflictingAddresses}
+            collapsed={getTableState(device.id, 'receive').collapsed}
+            onCollapseToggle={() => patchTableState(device.id, 'receive', { collapsed: !getTableState(device.id, 'receive').collapsed })}
+            sorting={getTableState(device.id, 'receive').sorting}
+            onSortingChange={(s) => patchTableState(device.id, 'receive', { sorting: s })}
+            showCompleteOnly={getTableState(device.id, 'receive').showCompleteOnly}
+            onShowCompleteOnlyChange={(v) => patchTableState(device.id, 'receive', { showCompleteOnly: v })}
+            highlightRowId={highlightTarget?.deviceId === device.id && highlightTarget?.ioType === 'receive' ? highlightTarget.rowId : null}
+            clearHighlight={clearHighlight}
+          />
+        </>
+      )}
       <DataTypeManager />
     </main>
   );

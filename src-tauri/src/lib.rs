@@ -1,3 +1,4 @@
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use std::fs;
 use std::path::Path;
 use tauri::{AppHandle, Emitter, Manager};
@@ -20,6 +21,22 @@ fn write_file(path: String, content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn read_file_base64(path: String) -> Result<String, String> {
+    let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(STANDARD.encode(bytes))
+}
+
+#[tauri::command]
+fn write_file_base64(path: String, content: String) -> Result<(), String> {
+    let bytes = STANDARD.decode(&content).map_err(|e| e.to_string())?;
+    let p = Path::new(&path);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn get_app_data_dir(handle: AppHandle) -> Result<String, String> {
     handle
         .path()
@@ -37,6 +54,7 @@ fn build_menu(app: &AppHandle, recent_paths: &[String]) -> Result<Menu<tauri::Wr
     let save_item = MenuItem::with_id(app, "save", "儲存", true, Some("CmdOrCtrl+S"))?;
     let save_as_item = MenuItem::with_id(app, "save-as", "另存新檔...", true, Some("CmdOrCtrl+Shift+S"))?;
     let export_item = MenuItem::with_id(app, "export-excel", "匯出 Excel", true, None::<&str>)?;
+    let print_item  = MenuItem::with_id(app, "print", "列印...", true, Some("CmdOrCtrl+P"))?;
     let quit_item = PredefinedMenuItem::quit(app, Some("結束"))?;
 
     // Recent files submenu
@@ -69,13 +87,16 @@ fn build_menu(app: &AppHandle, recent_paths: &[String]) -> Result<Menu<tauri::Wr
         &PredefinedMenuItem::separator(app)?,
         &export_item,
         &PredefinedMenuItem::separator(app)?,
+        &print_item,
+        &PredefinedMenuItem::separator(app)?,
         &quit_item,
     ])?;
 
     // Edit menu
     let undo_item = MenuItem::with_id(app, "undo", "復原", true, Some("CmdOrCtrl+Z"))?;
+    let redo_item = MenuItem::with_id(app, "redo", "重做", true, Some("CmdOrCtrl+Y"))?;
     let edit_menu = Submenu::with_id(app, "edit", "編輯", true)?;
-    edit_menu.append(&undo_item)?;
+    edit_menu.append_items(&[&undo_item, &redo_item])?;
 
     let menu = Menu::new(app)?;
     menu.append_items(&[&file_menu, &edit_menu])?;
@@ -155,7 +176,7 @@ pub fn run() {
             }
             app.emit("menu-action", id).ok();
         })
-        .invoke_handler(tauri::generate_handler![read_file, write_file, get_app_data_dir])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, read_file_base64, write_file_base64, get_app_data_dir])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

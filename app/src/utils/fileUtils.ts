@@ -1,10 +1,12 @@
 import * as XLSX from 'xlsx';
 import type { ProjectData } from '../types';
+import { parseExcelToProjectData } from './excelImport';
+import type { ParsedResult } from './excelImport';
 
 const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
 const hasFileSystemAccess = 'showOpenFilePicker' in window;
 
-export const isTauri = (): boolean => !!(window as unknown as Record<string, unknown>).__TAURI__;
+export const isTauri = (): boolean => !!(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
 
 // ── Tauri IPC helpers (lazy-imported to avoid errors in browser) ──
 
@@ -20,9 +22,15 @@ async function tauriOpenDialog(): Promise<string | null> {
   return result ?? null;
 }
 
-async function tauriSaveDialog(suggestedName: string): Promise<string | null> {
+async function tauriSaveDialog(
+  suggestedName: string,
+  filters?: { name: string; extensions: string[] }[],
+): Promise<string | null> {
   const { save } = await import('@tauri-apps/plugin-dialog');
-  return save({ defaultPath: suggestedName, filters: [{ name: 'JSON 專案檔', extensions: ['json'] }] });
+  return save({
+    defaultPath: suggestedName,
+    filters: filters ?? [{ name: 'JSON 專案檔', extensions: ['json'] }],
+  });
 }
 
 // ── 解析專案 JSON ─────────────────────────────────────────────
@@ -173,9 +181,47 @@ export function addToRecentFiles(newPath: string, existing: string[]): string[] 
   return [newPath, ...deduped].slice(0, MAX_RECENT);
 }
 
+// ── Excel 匯入 ────────────────────────────────────────────────
+
+export async function importFromExcel(): Promise<{ result: ParsedResult; fileName: string } | null> {
+  let base64: string;
+  let fileName: string;
+
+  if (isTauri()) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const selected = await open({ filters: [{ name: 'Excel 檔案', extensions: ['xlsx'] }], multiple: false });
+    const path = Array.isArray(selected) ? selected[0] ?? null : selected ?? null;
+    if (!path) return null;
+    base64 = await tauriInvoke<string>('read_file_base64', { path });
+    fileName = path.split(/[\\/]/).pop() ?? path;
+  } else {
+    try {
+      const [handle] = await (window as unknown as {
+        showOpenFilePicker: (opts: unknown) => Promise<FileSystemFileHandle[]>;
+      }).showOpenFilePicker({
+        types: [{ description: 'Excel 檔案', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }],
+      });
+      const file: File = await handle.getFile();
+      fileName = file.name;
+      const ab = await file.arrayBuffer();
+      const bytes = new Uint8Array(ab);
+      let binary = '';
+      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+      base64 = btoa(binary);
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return null;
+      throw e;
+    }
+  }
+
+  const wb = XLSX.read(base64, { type: 'base64' });
+  const result = parseExcelToProjectData(wb, fileName);
+  return { result, fileName };
+}
+
 // ── Excel 匯出 ────────────────────────────────────────────────
 
-export function exportToExcel(data: ProjectData): void {
+export async function exportToExcel(data: ProjectData, currentFilePath?: string | null): Promise<boolean> {
   const wb = XLSX.utils.book_new();
 
   const summaryRows: (string | number)[][] = [
@@ -216,5 +262,23 @@ export function exportToExcel(data: ProjectData): void {
     XLSX.utils.book_append_sheet(wb, ws, device.name.substring(0, 31));
   }
 
-  XLSX.writeFile(wb, `${data.project || 'export'}.xlsx`, { bookSST: true });
+  if (isTauri()) {
+    const fileName = `${data.project || 'export'}.xlsx`;
+    const sep = currentFilePath
+      ? Math.max(currentFilePath.lastIndexOf('/'), currentFilePath.lastIndexOf('\\'))
+      : -1;
+    const defaultPath = sep >= 0
+      ? `${currentFilePath!.substring(0, sep + 1)}${fileName}`
+      : fileName;
+    const path = await tauriSaveDialog(
+      defaultPath,
+      [{ name: 'Excel 檔案', extensions: ['xlsx'] }],
+    );
+    if (!path) return false;
+    const content = XLSX.write(wb, { type: 'base64', bookSST: true }) as string;
+    await tauriInvoke('write_file_base64', { path, content });
+  } else {
+    XLSX.writeFile(wb, `${data.project || 'export'}.xlsx`, { bookSST: true });
+  }
+  return true;
 }

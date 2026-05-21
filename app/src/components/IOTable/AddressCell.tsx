@@ -7,15 +7,16 @@ interface Props {
   rowIndex: number;
   onChange: (value: string) => void;
   onFill: (fromIndex: number, addresses: string[], autoBool: boolean) => void;
-  onEnterLast?: () => void;
-  isLast?: boolean;
   placeholder?: string;
   isConflict?: boolean;
   isEditing: boolean;
   onEndEdit: () => void;
+  onTabOut?: (dir: 'forward' | 'backward') => void;
+  onEnterOut?: () => void;
+  initialChar?: string;
 }
 
-export function AddressCell({ value, rowIndex, onChange, onFill, onEnterLast, isLast, placeholder = '如：DM0', isConflict = false, isEditing, onEndEdit }: Props) {
+export function AddressCell({ value, rowIndex, onChange, onFill, placeholder = '如：DM0', isConflict = false, isEditing, onEndEdit, onTabOut, onEnterOut, initialChar }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [previewCount, setPreviewCount] = useState(0);
@@ -60,10 +61,11 @@ export function AddressCell({ value, rowIndex, onChange, onFill, onEnterLast, is
         value={value}
         onChange={onChange}
         placeholder={placeholder}
-        onEnterLast={onEnterLast}
-        isLast={isLast}
         isEditing={isEditing}
         onEndEdit={onEndEdit}
+        onTabOut={onTabOut}
+        onEnterOut={onEnterOut}
+        initialChar={initialChar}
       />
       {value && (
         <div

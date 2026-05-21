@@ -4,9 +4,10 @@ import type { Device } from '../../types';
 
 interface Props {
   devices: Device[];
+  onNavigate: (deviceId: string, rowId: string, ioType: 'send' | 'receive') => void;
 }
 
-export function MainSystemView({ devices }: Props) {
+export function MainSystemView({ devices, onNavigate }: Props) {
   const rows = useMemo(() => buildMainSystemRows(devices), [devices]);
 
   if (rows.length === 0) {
@@ -44,6 +45,9 @@ export function MainSystemView({ devices }: Props) {
               <tr
                 key={i}
                 className={row.isDuplicate ? 'main-system-row-duplicate' : ''}
+                onClick={() => onNavigate(row.deviceId, row.rowId, row.ioType)}
+                style={{ cursor: 'pointer' }}
+                title={`點擊導航至 ${row.deviceName}`}
               >
                 <td className="main-system-addr">{row.mainSystemAddress}</td>
                 <td>

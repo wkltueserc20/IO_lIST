@@ -34,10 +34,13 @@ export interface ProjectData {
 export interface MainSystemRow {
   mainSystemAddress: string;
   direction: 'recv' | 'send';
+  deviceId: string;
   deviceName: string;
   deviceAddress: string;
   signalName: string;
   dataType: string;
   remark: string;
   isDuplicate: boolean;
+  rowId: string;
+  ioType: 'send' | 'receive';
 }

@@ -6,15 +6,17 @@ interface Props {
   onChange: (value: string) => void;
   isEditing: boolean;
   onEndEdit: () => void;
+  onTabOut?: (dir: 'forward' | 'backward') => void;
 }
 
-export function DataTypeCell({ value, onChange, isEditing, onEndEdit }: Props) {
+export function DataTypeCell({ value, onChange, isEditing, onEndEdit, onTabOut }: Props) {
   const dataTypes = useProjectStore((s) => s.dataTypes);
   const containerRef = useRef<HTMLDivElement>(null);
   const onEndEditRef = useRef(onEndEdit);
   onEndEditRef.current = onEndEdit;
+  const onTabOutRef = useRef(onTabOut);
+  onTabOutRef.current = onTabOut;
 
-  // Close dropdown on outside click
   useEffect(() => {
     if (!isEditing) return;
     const handleMouseDown = (e: MouseEvent) => {
@@ -24,6 +26,23 @@ export function DataTypeCell({ value, onChange, isEditing, onEndEdit }: Props) {
     };
     document.addEventListener('mousedown', handleMouseDown);
     return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [isEditing]);
+
+  // Capture Tab when dropdown is open (no focused input, events bubble to container)
+  useEffect(() => {
+    if (!isEditing) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        onEndEditRef.current();
+        onTabOutRef.current?.(e.shiftKey ? 'backward' : 'forward');
+      }
+      if (e.key === 'Escape') {
+        onEndEditRef.current();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [isEditing]);
 
   const handleSelect = (type: string) => {

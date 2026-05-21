@@ -6,34 +6,45 @@ interface Props {
   isEditing: boolean;
   onEndEdit: () => void;
   placeholder?: string;
-  onEnterLast?: () => void;
-  isLast?: boolean;
+  onTabOut?: (dir: 'forward' | 'backward') => void;
+  onEnterOut?: () => void;
+  initialChar?: string;
 }
 
-export function EditableCell({ value, onChange, isEditing, onEndEdit, placeholder, onEnterLast, isLast }: Props) {
+export function EditableCell({ value, onChange, isEditing, onEndEdit, placeholder, onTabOut, onEnterOut, initialChar }: Props) {
   const [draft, setDraft] = useState(value);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Sync draft to external value when not editing
   useEffect(() => {
     if (!isEditing) setDraft(value);
   }, [value, isEditing]);
 
-  // Explicit focus after React commits the render — more reliable than autoFocus
-  // in React 18 concurrent mode where autoFocus can fire before the DOM is ready.
   useEffect(() => {
     if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+      if (initialChar !== undefined) {
+        setDraft(initialChar);
+        inputRef.current.focus();
+      } else {
+        inputRef.current.focus();
+        inputRef.current.select();
+      }
     }
-  }, [isEditing]);
+  }, [isEditing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = () => { onChange(draft); onEndEdit(); };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') { commit(); if (isLast) onEnterLast?.(); }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      commit();
+      onEnterOut?.();
+    }
     if (e.key === 'Escape') { setDraft(value); onEndEdit(); }
-    if (e.key === 'Tab') { e.preventDefault(); commit(); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      commit();
+      onTabOut?.(e.shiftKey ? 'backward' : 'forward');
+    }
   };
 
   if (isEditing) {
