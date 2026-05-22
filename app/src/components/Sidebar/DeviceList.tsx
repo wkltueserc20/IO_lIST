@@ -26,8 +26,6 @@ export function DeviceList({ filterKeyword }: Props) {
     setDraggedId(null);
     setDragOverId(null);
   };
-  const handleDragEnd = () => { setDraggedId(null); setDragOverId(null); };
-
   useEffect(() => {
     if (!draggedId) return;
     const onUp = () => { setDraggedId(null); setDragOverId(null); };
