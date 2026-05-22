@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import type { Device, IORow, ProjectData, MainSystemBrand } from '../types';
+import type { Device, IORow, ProjectData, MainSystemBrand, ConnectionStatus, PlcBrand, PlcValue } from '../types';
 
-const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
+const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'DINT', 'UDINT', 'FLOAT', 'STRING'];
 
 type HistorySnapshot = {
   projectName: string;
@@ -95,6 +95,20 @@ interface ProjectStore {
   // View mode
   viewMode: 'device' | 'main-system';
   setViewMode: (mode: 'device' | 'main-system') => void;
+
+  // Connection status (runtime only, not persisted in history snapshots)
+  connectionStatus: Record<string, ConnectionStatus>;
+  setConnectionStatus: (deviceId: string, status: ConnectionStatus) => void;
+
+  // PLC live monitor (runtime only, not persisted in history snapshots)
+  monitoringDevices: Set<string>;
+  pollingInterval: number;
+  plcValues: Record<string, Record<string, PlcValue>>;
+  startMonitoring: (id: string) => void;
+  stopMonitoring: (id: string) => void;
+  setPollingInterval: (ms: number) => void;
+  setPlcValues: (deviceId: string, values: Record<string, PlcValue>) => void;
+  updateDevicePlcBrand: (id: string, brand: PlcBrand) => void;
 }
 
 function snap(s: ProjectStore): HistorySnapshot {
@@ -125,6 +139,10 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   recentFiles: [],
   past: [],
   future: [],
+  connectionStatus: {},
+  monitoringDevices: new Set<string>(),
+  pollingInterval: 1000,
+  plcValues: {},
 
   setProjectName: (name) => set((s) => ({ past: pushPast(s.past, snap(s)), future: [], projectName: name, hasUnsavedChanges: true })),
   setMainSystem: (brand) => set((s) => ({ past: pushPast(s.past, snap(s)), future: [], mainSystem: brand, hasUnsavedChanges: true })),
@@ -134,7 +152,11 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
   loadProject: (data) => set({
     projectName: data.project,
     mainSystem: data.mainSystem,
-    dataTypes: data.dataTypes || [...DEFAULT_DATA_TYPES],
+    dataTypes: (() => {
+      const saved = data.dataTypes ?? [];
+      const customs = saved.filter((t) => !DEFAULT_DATA_TYPES.includes(t));
+      return [...DEFAULT_DATA_TYPES, ...customs];
+    })(),
     devices: data.devices,
     selectedDeviceId: data.devices[0]?.id ?? null,
     hasUnsavedChanges: false,
@@ -435,6 +457,33 @@ export const useProjectStore = create<ProjectStore>((set, get) => ({
 
   viewMode: 'device',
   setViewMode: (mode) => set({ viewMode: mode }),
+
+  setConnectionStatus: (deviceId, status) =>
+    set((s) => ({ connectionStatus: { ...s.connectionStatus, [deviceId]: status } })),
+
+  startMonitoring: (id) =>
+    set((s) => ({ monitoringDevices: new Set([...s.monitoringDevices, id]) })),
+
+  stopMonitoring: (id) =>
+    set((s) => {
+      const next = new Set(s.monitoringDevices);
+      next.delete(id);
+      const { [id]: _removed, ...rest } = s.plcValues;
+      return { monitoringDevices: next, plcValues: rest };
+    }),
+
+  setPollingInterval: (ms) => set({ pollingInterval: ms }),
+
+  setPlcValues: (deviceId, values) =>
+    set((s) => ({ plcValues: { ...s.plcValues, [deviceId]: values } })),
+
+  updateDevicePlcBrand: (id, brand) =>
+    set((s) => ({
+      past: pushPast(s.past, snap(s)),
+      future: [],
+      devices: s.devices.map((d) => d.id === id ? { ...d, plcBrand: brand ?? undefined } : d),
+      hasUnsavedChanges: true,
+    })),
 }));
 
 export { DEFAULT_DATA_TYPES };

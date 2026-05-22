@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import type { IORow } from '../types';
 
-const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
+const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'DINT', 'UDINT', 'FLOAT', 'STRING'];
 
 export interface ParsedDevice {
   name: string;

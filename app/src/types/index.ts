@@ -1,3 +1,9 @@
+export type ConnectionStatus = 'idle' | 'testing' | 'online' | 'ip-only' | 'offline';
+
+export type PlcBrand = 'KEYENCE_KV' | 'Mitsubishi_3E' | null;
+
+export interface PlcValue { value: string; ts: number; error?: string; }
+
 export type MainSystemBrand =
   | 'KEYENCE'
   | 'Mitsubishi'
@@ -20,6 +26,7 @@ export interface Device {
   name: string;
   ip?: string;
   port?: string;
+  plcBrand?: PlcBrand;
   sendIO: IORow[];
   receiveIO: IORow[];
 }

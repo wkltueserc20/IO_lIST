@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useProjectStore } from '../../store/useProjectStore';
 import { DeviceItem } from './DeviceItem';
 
@@ -19,14 +19,6 @@ export function DeviceList({ filterKeyword }: Props) {
     [devices, filterKeyword],
   );
 
-  if (devices.length === 0) {
-    return <div className="device-list-empty">尚無設備，請點擊下方新增</div>;
-  }
-
-  if (filteredDevices.length === 0) {
-    return <div className="device-list-empty">找不到符合的設備</div>;
-  }
-
   const handleDragStart = (id: string) => setDraggedId(id);
   const handleDragOver = (id: string) => { if (id !== draggedId) setDragOverId(id); };
   const handleDrop = (toId: string) => {
@@ -35,6 +27,21 @@ export function DeviceList({ filterKeyword }: Props) {
     setDragOverId(null);
   };
   const handleDragEnd = () => { setDraggedId(null); setDragOverId(null); };
+
+  useEffect(() => {
+    if (!draggedId) return;
+    const onUp = () => { setDraggedId(null); setDragOverId(null); };
+    window.addEventListener('pointerup', onUp);
+    return () => window.removeEventListener('pointerup', onUp);
+  }, [draggedId]);
+
+  if (devices.length === 0) {
+    return <div className="device-list-empty">尚無設備，請點擊下方新增</div>;
+  }
+
+  if (filteredDevices.length === 0) {
+    return <div className="device-list-empty">找不到符合的設備</div>;
+  }
 
   return (
     <div className="device-list">

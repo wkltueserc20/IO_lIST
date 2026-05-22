@@ -663,6 +663,11 @@ body {
   position: relative;
 }
 
+.address-cell-wrapper[data-invalid="true"] input {
+  border-color: #e53935;
+  outline-color: #e53935;
+}
+
 .fill-handle {
   position: absolute;
   bottom: 1px;
@@ -1513,7 +1518,8 @@ body {
 @media print {
   body { background: white !important; color: black !important; }
   .toolbar, .sidebar, .shortcut-fab, .add-row-btn,
-  .device-delete-btn, .device-clone-btn, .batch-replace-btn,
+  .device-delete-btn, .device-clone-btn, .device-ping-btn, .device-monitor-btn,
+  .batch-replace-btn, .monitor-control-bar,
   .col-resize-handle, .filter-toggle-btn, .global-search-panel,
   .global-search-overlay, .status-bar { display: none !important; }
   .app-body { display: block !important; }
@@ -1542,6 +1548,45 @@ body {
 
 .device-item:hover .device-clone-btn { opacity: 1; }
 .device-clone-btn:hover { background: #eef5ff; color: #1a237e; }
+
+/* ── Device connection status dot ────────────────────── */
+
+.device-conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 5px;
+  flex-shrink: 0;
+}
+.device-conn-dot--idle    { background: #888; }
+.device-conn-dot--testing { background: #888; animation: conn-spin 0.8s linear infinite; }
+.device-conn-dot--online  { background: #4caf50; }
+.device-conn-dot--ip-only { background: #ff9800; }
+.device-conn-dot--offline { background: #e53935; }
+
+@keyframes conn-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Device ping button ───────────────────────────────── */
+
+.device-ping-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  transition: opacity 0.15s;
+}
+.device-item:hover .device-ping-btn { opacity: 1; }
+.device-ping-btn:disabled { opacity: 0.3 !important; cursor: not-allowed; }
+.device-ping-btn:not(:disabled):hover { background: #eef5ff; }
 
 /* ── IO row drag reorder ──────────────────────────────── */
 
@@ -2060,3 +2105,119 @@ body {
 /* ── Device Settings Modal messages ─────────────────────── */
 [data-theme="dark"] .ds-msg-error { color: #fc8181; }
 [data-theme="dark"] .ds-msg-warn  { color: #fbd38d; }
+
+/* ── PLC Monitor: device item button ────────────────────── */
+
+.device-monitor-btn {
+  opacity: 0;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1;
+  transition: opacity 0.15s, color 0.15s;
+}
+.device-item:hover .device-monitor-btn { opacity: 1; }
+.device-monitor-btn.active { opacity: 1; color: #1565c0; }
+.device-monitor-btn:not(:disabled):hover { background: #eef5ff; }
+
+/* ── PLC Monitor: monitoring indicator on device item ────── */
+
+.device-item--monitoring {
+  border-left: 2px solid #1565c0;
+}
+
+@keyframes monitor-pulse {
+  0%, 100% { border-left-color: #1565c0; }
+  50%       { border-left-color: #64b5f6; }
+}
+
+.device-item--monitoring {
+  animation: monitor-pulse 2s ease-in-out infinite;
+}
+
+/* ── PLC Monitor: control bar in main content ────────────── */
+
+.monitor-control-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 10px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.monitor-toggle-btn {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid #1565c0;
+  background: #e3f2fd;
+  color: #1565c0;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.monitor-toggle-btn:hover { background: #bbdefb; }
+.monitor-toggle-btn.active {
+  background: #1565c0;
+  color: #fff;
+}
+.monitor-toggle-btn.active:hover { background: #0d47a1; }
+
+.monitor-control-sep { color: var(--color-text-muted); font-size: 12px; }
+
+.monitor-interval-select {
+  padding: 3px 6px;
+  font-size: 12px;
+  border: 1px solid var(--color-border-input);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.monitor-last-update {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-family: 'Consolas', 'Courier New', monospace;
+}
+
+/* ── PLC Monitor: plcValue column cell ───────────────────── */
+
+.plc-value-cell {
+  background: #f0f7ff;
+  font-family: 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  min-width: 70px;
+  text-align: right;
+  padding: 0 8px !important;
+}
+
+.plc-value-cell[data-error="true"] {
+  background: #fff0f0;
+  color: #c62828;
+}
+
+/* ── PLC Monitor: dark mode overrides ────────────────────── */
+
+[data-theme="dark"] .monitor-toggle-btn {
+  border-color: var(--color-accent);
+  background: var(--color-accent-bg);
+  color: var(--color-accent);
+}
+[data-theme="dark"] .monitor-toggle-btn:hover { background: rgba(74,158,255,0.2); }
+[data-theme="dark"] .monitor-toggle-btn.active {
+  background: var(--color-accent);
+  color: #fff;
+}
+[data-theme="dark"] .device-monitor-btn.active { color: var(--color-accent); }
+[data-theme="dark"] .plc-value-cell { background: rgba(21,101,192,0.12); }
+[data-theme="dark"] .plc-value-cell[data-error="true"] {
+  background: rgba(198,40,40,0.18);
+  color: #fc8181;
+}

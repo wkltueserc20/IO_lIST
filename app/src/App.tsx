@@ -46,7 +46,7 @@ interface HighlightTarget {
 }
 
 function App() {
-  const { hasUnsavedChanges, undo, redo, projectName, setRecentFiles, currentFilePath, getProjectData, markSaved, showSavedTip, devices, selectDevice, setViewMode } =
+  const { hasUnsavedChanges, undo, redo, projectName, setRecentFiles, currentFilePath, getProjectData, markSaved, showSavedTip, devices, selectDevice, setViewMode, monitoringDevices, pollingInterval, setPlcValues } =
     useProjectStore();
   const { handleNew, handleOpen, handleSave, handleSaveAs, handleExport, handleOpenPath, handleImportExcel, handleConfirmImport } = useFileActions();
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -217,6 +217,48 @@ function App() {
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__ioCurrentPath__ = currentFilePath;
   }, [currentFilePath]);
+
+  // ── PLC live polling ───────────────────────────────────────────
+  useEffect(() => {
+    if (!isTauri() || monitoringDevices.size === 0) return;
+
+    const tick = async () => {
+      const state = useProjectStore.getState();
+      await Promise.all(
+        [...state.monitoringDevices].map(async (deviceId) => {
+          const device = state.devices.find((d) => d.id === deviceId);
+          if (!device?.ip || !device.plcBrand) return;
+          const port = device.port ? parseInt(device.port, 10) : (device.plcBrand === 'KEYENCE_KV' ? 8501 : 5006);
+          const allRows = [...device.sendIO, ...device.receiveIO];
+          const requests = allRows
+            .filter((r) => r.deviceAddress.trim() !== '')
+            .map((r) => ({ address: r.deviceAddress.trim(), data_type: r.dataType || 'WORD' }));
+          if (requests.length === 0) return;
+          try {
+            const { invoke } = await import('@tauri-apps/api/core');
+            const results = await invoke<Array<{ address: string; value: string | null; error: string | null }>>(
+              'read_plc_batch',
+              { ip: device.ip, port, brand: device.plcBrand, requests }
+            );
+            const valuesMap: Record<string, { value: string; ts: number; error?: string }> = {};
+            for (const r of results) {
+              valuesMap[r.address] = {
+                value: r.value ?? '',
+                ts: Date.now(),
+                ...(r.error ? { error: r.error } : {}),
+              };
+            }
+            state.setPlcValues(deviceId, valuesMap);
+          } catch { /* ignore per-device errors */ }
+        })
+      );
+    };
+
+    tick();
+    const id = setInterval(tick, pollingInterval);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monitoringDevices, pollingInterval]);
 
   return (
     <>

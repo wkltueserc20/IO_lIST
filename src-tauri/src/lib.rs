@@ -5,6 +5,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
 
+mod plc;
+
 static HAS_UNSAVED_CHANGES: AtomicBool = AtomicBool::new(false);
 
 // ── Commands ───────────────────────────────────────────────────
@@ -48,6 +50,58 @@ fn set_unsaved_state(has_unsaved: bool) {
 fn close_window(app: AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         window.destroy().ok();
+    }
+}
+
+#[tauri::command]
+async fn test_connection(ip: String, port: Option<u16>) -> Result<String, String> {
+    use std::net::{SocketAddr, TcpStream};
+    use std::time::Duration;
+
+    // Step 1: ICMP ping via system ping.exe (no admin required)
+    let ping_ok = std::process::Command::new("ping")
+        .args(["-n", "1", "-w", "2000", &ip])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !ping_ok {
+        return Ok("offline".to_string());
+    }
+
+    // Step 2: TCP port check (only if port is provided)
+    match port {
+        Some(p) => {
+            let addr: SocketAddr = format!("{}:{}", ip, p)
+                .parse()
+                .map_err(|e: std::net::AddrParseError| e.to_string())?;
+            match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
+                Ok(_) => Ok("online".to_string()),
+                Err(_) => Ok("ip-only".to_string()),
+            }
+        }
+        None => Ok("ip-only".to_string()),
+    }
+}
+
+#[tauri::command]
+async fn read_plc_batch(
+    ip: String,
+    port: u16,
+    brand: String,
+    requests: Vec<plc::ReadRequest>,
+) -> Vec<plc::ReadResult> {
+    match brand.as_str() {
+        "KEYENCE_KV" => plc::keyence::read_batch(&ip, port, requests),
+        "Mitsubishi_3E" => plc::mitsubishi::read_batch(&ip, port, requests),
+        _ => requests
+            .into_iter()
+            .map(|r| plc::ReadResult {
+                address: r.address,
+                value: None,
+                error: Some(format!("不支援的品牌: {}", brand)),
+            })
+            .collect(),
     }
 }
 
@@ -124,7 +178,7 @@ fn build_menu(app: &AppHandle, recent_paths: &[String]) -> Result<Menu<tauri::Wr
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Info).build())
+        .plugin(tauri_plugin_log::Builder::default().level(log::LevelFilter::Debug).build())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // Load recent files from AppData for initial menu build
@@ -197,7 +251,7 @@ pub fn run() {
                 window.emit("close-requested", ()).ok();
             }
         })
-        .invoke_handler(tauri::generate_handler![read_file, write_file, read_file_base64, write_file_base64, get_app_data_dir, set_unsaved_state, close_window])
+        .invoke_handler(tauri::generate_handler![read_file, write_file, read_file_base64, write_file_base64, get_app_data_dir, set_unsaved_state, close_window, test_connection, read_plc_batch])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

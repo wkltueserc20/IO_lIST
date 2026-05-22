@@ -3,7 +3,7 @@ import type { ProjectData } from '../types';
 import { parseExcelToProjectData } from './excelImport';
 import type { ParsedResult } from './excelImport';
 
-const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
+const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'DINT', 'UDINT', 'FLOAT', 'STRING'];
 const hasFileSystemAccess = 'showOpenFilePicker' in window;
 
 export const isTauri = (): boolean => !!(window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;

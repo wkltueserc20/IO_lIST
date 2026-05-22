@@ -14,7 +14,7 @@ import {
 import type { ProjectData, MainSystemBrand } from '../types';
 import type { ParsedResult } from '../utils/excelImport';
 
-const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'FLOAT', 'STRING'];
+const DEFAULT_DATA_TYPES = ['BOOL', 'UINT', 'INT', 'WORD', 'DWORD', 'DINT', 'UDINT', 'FLOAT', 'STRING'];
 
 function parseJSON(text: string): ProjectData {
   const parsed = JSON.parse(text);

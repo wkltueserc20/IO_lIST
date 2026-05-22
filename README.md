@@ -53,6 +53,15 @@
 - 關閉視窗前原生確認對話框（有未存變更時）
 - 雙擊 `.json` 檔案直接開啟並載入
 
+### PLC 即時監控（桌面版限定）
+- 設備清單點擊 **📡** 按鈕開始 / 停止監控，即時讀取 PLC IO 點位的實際值
+- IO 表格即時顯示各點位的當前值，BOOL 顯示 ON/OFF，數值型顯示實際數值
+- 支援 PLC 品牌：
+  - **KEYENCE**：KV Upper-Link Protocol（KV-XLE02 / KV-EP21 / 內建乙太網路），預設 Port 8501
+  - **三菱**：SLMP / MC Protocol 3E Frame（QnU / iQ-R / iQ-F），Binary / ASCII 兩種模式，預設 Port 502
+- 資料類型支援：BOOL、INT（有符號 16 位元）、UINT / WORD（無符號 16 位元）、DWORD / UDINT（32 位元）、DINT（有符號 32 位元）、FLOAT（32 位元浮點）
+- 設備需在編輯面板中設定 **IP 位址**、**Port** 及 **PLC 品牌** 才可啟用監控
+
 ## 快速開始
 
 ### 瀏覽器模式
@@ -105,6 +114,7 @@ npm run build
 | SheetJS (xlsx) | Excel 匯出 |
 | Tauri v2 + Rust | 桌面應用殼層 |
 | tauri-plugin-dialog | 原生開檔/存檔對話框 |
+| Rust TCP（純標準函式庫） | KEYENCE / 三菱 PLC 通訊 |
 
 ## 專案結構
 
@@ -127,6 +137,12 @@ npm run build
 │       │   └── naturalSort.ts     # 自然排序、主系統視角聚合
 │       └── types/index.ts
 └── src-tauri/                  # Rust 後端
-    ├── src/lib.rs              # 指令（read_file/write_file）、原生選單、自動存檔
+    ├── src/
+    │   ├── lib.rs              # 指令（read_file/write_file）、原生選單、自動存檔
+    │   └── plc/
+    │       ├── mod.rs          # PLC 通訊介面（read_batch dispatch）
+    │       ├── address.rs      # 位址解析（Bool/Word/BitInWord）
+    │       ├── keyence.rs      # KEYENCE KV Upper-Link Protocol
+    │       └── mitsubishi.rs   # 三菱 SLMP / MC Protocol 3E Frame
     └── tauri.conf.json         # 視窗設定、Bundle 設定
 ```

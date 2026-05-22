@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useProjectStore } from '../../store/useProjectStore';
-import type { Device } from '../../types';
+import type { Device, PlcBrand } from '../../types';
 
 interface Props {
   device: Device;
@@ -13,6 +13,7 @@ const PORT_CHIPS = [
   { label: 'Modbus', port: '502' },
   { label: 'FINS', port: '9600' },
   { label: 'MC', port: '5007' },
+  { label: 'KEYENCE KV', port: '8501' },
 ];
 
 function validateIP(ip: string): string | null {
@@ -27,10 +28,11 @@ function validatePort(port: string): string | null {
 }
 
 export function DeviceSettingsModal({ device, onClose }: Props) {
-  const { updateDeviceSettings, checkDuplicateIP } = useProjectStore();
-  const [activeTab, setActiveTab] = useState<'network'>('network');
+  const { updateDeviceSettings, checkDuplicateIP, updateDevicePlcBrand } = useProjectStore();
+  const [activeTab, setActiveTab] = useState<'network' | 'plc'>('network');
   const [ip, setIp] = useState(device.ip ?? '');
   const [port, setPort] = useState(device.port ?? '');
+  const [plcBrand, setPlcBrand] = useState<PlcBrand>(device.plcBrand ?? null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,6 +50,7 @@ export function DeviceSettingsModal({ device, onClose }: Props) {
   const handleSave = () => {
     if (!canSave) return;
     updateDeviceSettings(device.id, ip, port);
+    updateDevicePlcBrand(device.id, plcBrand);
     onClose();
   };
 
@@ -69,6 +72,12 @@ export function DeviceSettingsModal({ device, onClose }: Props) {
             onClick={() => setActiveTab('network')}
           >
             網路連線
+          </button>
+          <button
+            className={`ds-tab ${activeTab === 'plc' ? 'active' : ''}`}
+            onClick={() => setActiveTab('plc')}
+          >
+            PLC 通訊
           </button>
         </div>
 
@@ -115,6 +124,28 @@ export function DeviceSettingsModal({ device, onClose }: Props) {
                       {c.label} {c.port}
                     </button>
                   ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'plc' && (
+          <div className="modal-body">
+            <div className="modal-field">
+              <label>PLC 品牌 / 通訊協定</label>
+              <div className="ds-input-group">
+                <select
+                  className="modal-input"
+                  value={plcBrand ?? ''}
+                  onChange={(e) => setPlcBrand((e.target.value as PlcBrand) || null)}
+                >
+                  <option value="">不設定</option>
+                  <option value="KEYENCE_KV">KEYENCE KV</option>
+                  <option value="Mitsubishi_3E">三菱 MELSEC 3E（MC 3E ASCII）</option>
+                </select>
+                <div className="ds-msg" style={{ color: '#888', fontSize: '0.8em', marginTop: 4 }}>
+                  選擇後可在側邊欄開啟即時監控，讀取 IO 點位目前值。
                 </div>
               </div>
             </div>

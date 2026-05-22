@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { EditableCell } from './EditableCell';
-import { fillAddresses, shouldAutoBool } from '../../utils/addressUtils';
+import { fillAddresses, parseAddress, shouldAutoBool } from '../../utils/addressUtils';
 
 interface Props {
   value: string;
@@ -19,6 +19,12 @@ interface Props {
 export function AddressCell({ value, rowIndex, onChange, onFill, placeholder = '如：DM0', isConflict = false, isEditing, onEndEdit, onTabOut, onEnterOut, initialChar }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isInvalid, setIsInvalid] = useState(false);
+
+  const handleChange = (newValue: string) => {
+    onChange(newValue);
+    setIsInvalid(newValue.trim() !== '' && parseAddress(newValue.trim()) === null);
+  };
   const [previewCount, setPreviewCount] = useState(0);
   const startY = useRef(0);
   const rowHeight = 36;
@@ -56,10 +62,15 @@ export function AddressCell({ value, rowIndex, onChange, onFill, placeholder = '
   };
 
   return (
-    <div ref={containerRef} className={`address-cell-wrapper${isConflict ? ' cell-conflict' : ''}`}>
+    <div
+      ref={containerRef}
+      className={`address-cell-wrapper${isConflict ? ' cell-conflict' : ''}`}
+      data-invalid={isInvalid ? 'true' : undefined}
+      title={isInvalid ? '無效位址格式。範例：DM0、DM5.3、M10、MR5' : undefined}
+    >
       <EditableCell
         value={value}
-        onChange={onChange}
+        onChange={handleChange}
         placeholder={placeholder}
         isEditing={isEditing}
         onEndEdit={onEndEdit}

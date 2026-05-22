@@ -9,7 +9,15 @@ import { MainSystemView } from './MainSystemView/MainSystemView';
 import { ConflictBadge } from './ConflictBadge';
 import { EmptyDeviceGuide } from './EmptyDeviceGuide';
 import { findConflictingAddresses } from '../utils/addressUtils';
+import { isTauri } from '../utils/fileUtils';
 import type { MainSystemBrand } from '../types';
+
+const INTERVAL_OPTIONS = [
+  { label: '500ms', ms: 500 },
+  { label: '1s', ms: 1000 },
+  { label: '2s', ms: 2000 },
+  { label: '5s', ms: 5000 },
+];
 
 type TablePersistState = {
   collapsed: boolean;
@@ -45,7 +53,7 @@ interface Props {
 }
 
 export function MainContent({ highlightTarget, clearHighlight, onNavigate }: Props) {
-  const { devices, selectedDeviceId, mainSystem, checkDuplicateIP, viewMode, addIORow } = useProjectStore();
+  const { devices, selectedDeviceId, mainSystem, checkDuplicateIP, viewMode, addIORow, monitoringDevices, pollingInterval, setPollingInterval, startMonitoring, stopMonitoring, plcValues } = useProjectStore();
   const [showBatchReplace, setShowBatchReplace] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [tableStates, setTableStates] = useState<Record<string, TablePersistState>>({});
@@ -116,6 +124,10 @@ export function MainContent({ highlightTarget, clearHighlight, onNavigate }: Pro
     ? `⚠ ${device.ip}:${device.port}`
     : `● ${device.ip}${device.port ? `:${device.port}` : ''}`;
 
+  const isMonitoring = monitoringDevices.has(device.id);
+  const devicePlcValues = plcValues[device.id] ?? {};
+  const lastTs = Object.values(devicePlcValues).reduce((max, v) => Math.max(max, v.ts), 0);
+
   return (
     <main className="main-content">
       <div className="device-header">
@@ -144,6 +156,31 @@ export function MainContent({ highlightTarget, clearHighlight, onNavigate }: Pro
           </>
         )}
       </div>
+      {isTauri() && device.plcBrand && (
+        <div className="monitor-control-bar">
+          <button
+            className={`monitor-toggle-btn${isMonitoring ? ' active' : ''}`}
+            onClick={() => isMonitoring ? stopMonitoring(device.id) : startMonitoring(device.id)}
+          >
+            {isMonitoring ? '■ 停止監控' : '▶ 開始監控'}
+          </button>
+          <span className="monitor-control-sep">間隔</span>
+          <select
+            className="monitor-interval-select"
+            value={pollingInterval}
+            onChange={(e) => setPollingInterval(Number(e.target.value))}
+          >
+            {INTERVAL_OPTIONS.map((o) => (
+              <option key={o.ms} value={o.ms}>{o.label}</option>
+            ))}
+          </select>
+          {lastTs > 0 && (
+            <span className="monitor-last-update">
+              最後更新 {new Date(lastTs).toLocaleTimeString()}
+            </span>
+          )}
+        </div>
+      )}
       {showSettings && (
         <DeviceSettingsModal device={device} onClose={() => setShowSettings(false)} />
       )}
@@ -176,6 +213,8 @@ export function MainContent({ highlightTarget, clearHighlight, onNavigate }: Pro
             onShowCompleteOnlyChange={(v) => patchTableState(device.id, 'send', { showCompleteOnly: v })}
             highlightRowId={highlightTarget?.deviceId === device.id && highlightTarget?.ioType === 'send' ? highlightTarget.rowId : null}
             clearHighlight={clearHighlight}
+            monitorValues={devicePlcValues}
+            isMonitoring={isMonitoring}
           />
           <IOTable
             key={`${device.id}-receive`}
@@ -193,6 +232,8 @@ export function MainContent({ highlightTarget, clearHighlight, onNavigate }: Pro
             onShowCompleteOnlyChange={(v) => patchTableState(device.id, 'receive', { showCompleteOnly: v })}
             highlightRowId={highlightTarget?.deviceId === device.id && highlightTarget?.ioType === 'receive' ? highlightTarget.rowId : null}
             clearHighlight={clearHighlight}
+            monitorValues={devicePlcValues}
+            isMonitoring={isMonitoring}
           />
         </>
       )}

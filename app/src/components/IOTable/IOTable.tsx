@@ -6,7 +6,7 @@ import { AddressCell } from './AddressCell';
 import { ContextMenu } from './ContextMenu';
 import { naturalSortAddress } from '../../utils/addressUtils';
 import { useTableKeyboard } from '../../hooks/useTableKeyboard';
-import type { IORow } from '../../types';
+import type { IORow, PlcValue } from '../../types';
 
 interface Props {
   deviceId: string;
@@ -23,6 +23,8 @@ interface Props {
   onShowCompleteOnlyChange: (v: boolean) => void;
   highlightRowId?: string | null;
   clearHighlight?: () => void;
+  monitorValues?: Record<string, PlcValue>;
+  isMonitoring?: boolean;
 }
 
 const EDITABLE_COLS: (keyof IORow)[] = [
@@ -39,8 +41,16 @@ const COLUMNS = [
   { id: 'dataType',          header: '資料類型',       width: 110, selIdx: 2,   sortKey: null },
   { id: 'mainSystemAddress', header: '主系統點位位址', width: 160, selIdx: 3,   sortKey: 'mainSystemAddress' as keyof IORow },
   { id: 'remark',            header: '備註',           width: 150, selIdx: 4,   sortKey: null },
+  { id: 'plcValue',          header: '目前值',         width: 90,  selIdx: null, sortKey: null },
   { id: 'actions',           header: '',              width: 40,  selIdx: null, sortKey: null },
 ];
+
+function formatPlcValue(val: PlcValue | undefined, dataType: string): string {
+  if (val === undefined) return '讀取中…';
+  if (val.error) return '❌';
+  if (dataType === 'BOOL' || dataType === 'FLOAT') return val.value;
+  return val.value;
+}
 
 // Module-level key so keyboard handler knows which table was last interacted with
 let activeTableKey = '';
@@ -53,7 +63,7 @@ function loadColumnWidths(): Record<string, number> {
 export function IOTable({
   deviceId, deviceName, type, rows, mainSystemPlaceholder, conflictingAddresses,
   collapsed, onCollapseToggle, sorting, onSortingChange, showCompleteOnly, onShowCompleteOnlyChange,
-  highlightRowId, clearHighlight,
+  highlightRowId, clearHighlight, monitorValues, isMonitoring,
 }: Props) {
   const {
     updateIORow, deleteIORow, addIORow, insertRowsAfter,
@@ -72,6 +82,14 @@ export function IOTable({
   const [pasteResult, setPasteResult]           = useState<number | null>(null);
   const [dragRowId, setDragRowId]               = useState<string | null>(null);
   const [dragOverRowId, setDragOverRowId]       = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!dragRowId) return;
+    const onUp = () => { setDragRowId(null); setDragOverRowId(null); };
+    window.addEventListener('pointerup', onUp);
+    return () => window.removeEventListener('pointerup', onUp);
+  }, [dragRowId]);
+
   const [ctxMenu, setCtxMenu]                   = useState<{ x: number; y: number; rowId: string; rowIdx: number } | null>(null);
   const [columnWidths, setColumnWidths]         = useState<Record<string, number>>(() => {
     const saved = loadColumnWidths();
@@ -552,15 +570,15 @@ export function IOTable({
                         ].filter(Boolean).join(' ')}
                         data-conflict={isConflictRow ? 'true' : undefined}
                         data-highlight-row={row.id}
-                        draggable={canDrag}
-                        onDragStart={() => setDragRowId(row.id)}
-                        onDragOver={(e) => { e.preventDefault(); setDragOverRowId(row.id); }}
-                        onDrop={() => {
+                        onPointerEnter={(e) => {
+                          if (e.buttons > 0 && dragRowId && dragRowId !== row.id)
+                            setDragOverRowId(row.id);
+                        }}
+                        onPointerUp={() => {
                           if (dragRowId && dragRowId !== row.id)
                             reorderIORows(deviceId, type, dragRowId, row.id);
                           setDragRowId(null); setDragOverRowId(null);
                         }}
-                        onDragEnd={() => { setDragRowId(null); setDragOverRowId(null); }}
                       >
 
                         {/* 拖曳把手 */}
@@ -568,6 +586,7 @@ export function IOTable({
                           <span
                             className="row-drag-handle"
                             title={canDrag ? '拖曳排序' : '請先清除欄位排序才能拖曳列'}
+                            onPointerDown={(e) => { if (canDrag) { e.preventDefault(); setDragRowId(row.id); } }}
                           >⠿</span>
                         </td>
 
@@ -644,6 +663,29 @@ export function IOTable({
                             initialChar={editingCell?.row === origIdx && editingCell?.col === 4 ? pendingInitialCharRef.current : undefined}
                           />
                         </td>
+
+                        {/* 目前值 */}
+                        {(() => {
+                          if (!isMonitoring) {
+                            return <td className="plc-value-cell" style={{ color: '#aaa' }}>—</td>;
+                          }
+                          const addr = row.deviceAddress.trim();
+                          if (!addr) {
+                            return <td className="plc-value-cell" style={{ color: '#aaa' }}>—</td>;
+                          }
+                          const val = monitorValues?.[addr];
+                          const display = formatPlcValue(val, row.dataType);
+                          const hasError = val?.error != null;
+                          return (
+                            <td
+                              className="plc-value-cell"
+                              data-error={hasError ? 'true' : undefined}
+                              title={hasError ? val!.error : undefined}
+                            >
+                              {display}
+                            </td>
+                          );
+                        })()}
 
                         {/* 刪除 */}
                         <td>
