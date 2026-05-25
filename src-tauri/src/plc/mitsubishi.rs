@@ -25,6 +25,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use super::address::{parse_device_address, PlcDevice};
+use super::batch::{build_word_groups, extract_value, WordGroup, WordSpec};
+use super::pool::MelsecMode;
 use super::{ReadRequest, ReadResult};
 
 const TIMEOUT: Duration = Duration::from_secs(3);
@@ -82,7 +84,6 @@ fn device_code_ascii(prefix: &str) -> Option<&'static str> {
     }
 }
 
-/// D/M/L/F/SD/SM → 6 decimal digits; W/B/SB → 4 hex digits
 fn addr_ascii_str(prefix: &str, addr: u32) -> String {
     match prefix.to_uppercase().as_str() {
         "W" | "B" | "SB" => format!("{:04X}", addr),
@@ -93,16 +94,16 @@ fn addr_ascii_str(prefix: &str, addr: u32) -> String {
 // ── Binary frame (QnA 3E, 21 bytes) ──────────────────────────────────────────
 
 fn build_bin_frame(dev_code: u8, addr: u32, count: u16, subcommand: u16) -> Vec<u8> {
-    const DATA_LEN: u16 = 12; // body = timer(2)+cmd(2)+sub(2)+addr(3)+code(1)+count(2)
+    const DATA_LEN: u16 = 12;
     let mut f = Vec::with_capacity(21);
-    f.extend_from_slice(&[0x50, 0x00]);            // subheader
-    f.push(0x00);                                   // network
-    f.push(0xFF);                                   // PC
-    f.extend_from_slice(&[0xFF, 0x03]);            // I/O = 0x03FF LE
-    f.push(0x00);                                   // station
-    f.extend_from_slice(&DATA_LEN.to_le_bytes());  // data length = 12
-    f.extend_from_slice(&[0x10, 0x00]);            // timer 0x0010 (4 s)
-    f.extend_from_slice(&[0x01, 0x04]);            // command 0x0401 LE
+    f.extend_from_slice(&[0x50, 0x00]);
+    f.push(0x00);
+    f.push(0xFF);
+    f.extend_from_slice(&[0xFF, 0x03]);
+    f.push(0x00);
+    f.extend_from_slice(&DATA_LEN.to_le_bytes());
+    f.extend_from_slice(&[0x10, 0x00]);
+    f.extend_from_slice(&[0x01, 0x04]);
     f.extend_from_slice(&subcommand.to_le_bytes());
     f.push((addr & 0xFF) as u8);
     f.push(((addr >> 8) & 0xFF) as u8);
@@ -123,13 +124,9 @@ fn send_recv_bin(stream: &mut TcpStream, frame: &[u8]) -> Result<Vec<u8>, String
             Ok(0) => break,
             Ok(n) => {
                 raw.extend_from_slice(&tmp[..n]);
-                // Binary response: 9-byte header + data_len bytes
-                // data_len field at [7..9]; complete when raw.len() >= 9 + data_len
                 if raw.len() >= 9 {
                     let data_len = u16::from_le_bytes([raw[7], raw[8]]) as usize;
-                    if raw.len() >= 9 + data_len {
-                        break;
-                    }
+                    if raw.len() >= 9 + data_len { break; }
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
@@ -141,11 +138,6 @@ fn send_recv_bin(stream: &mut TcpStream, frame: &[u8]) -> Result<Vec<u8>, String
     Ok(raw)
 }
 
-/// Binary response:
-/// [0..2] D0 00  [2] net  [3] PC  [4..6] I/O  [6] sta
-/// [7..9] data_len (LE, includes end_code)
-/// [9..11] end_code (LE)
-/// [11..] data
 fn extract_bin_data(raw: &[u8]) -> Result<&[u8], String> {
     if raw.len() < 11 {
         return Err(format!("回應太短（{} bytes）: {}", raw.len(), hex_dump(raw)));
@@ -166,14 +158,11 @@ fn extract_bin_data(raw: &[u8]) -> Result<&[u8], String> {
 
 // ── ASCII frame (QnA 3E) ──────────────────────────────────────────────────────
 
-/// QnA 3E ASCII header (14 chars, no serial/reserved):
-/// "5000" + "00" + "FF" + "03FF" + "00" = "500000FF03FF00"
 fn build_ascii_frame(dev_code_str: &str, addr_str: &str, count: u16, subcommand: u16) -> Vec<u8> {
     let body = format!(
         "0010{:04X}{:04X}{}{}{:04X}",
         0x0401u16, subcommand, addr_str, dev_code_str, count
     );
-    // Header fixed (14 chars): sub(4)+net(2)+PC(2)+io(4)+sta(2)
     let frame = format!("500000FF03FF00{:04X}{}", body.len() as u16, body);
     log::debug!("[MELSEC ASCII TX] {} chars | {}", frame.len(), frame);
     frame.into_bytes()
@@ -189,13 +178,10 @@ fn send_recv_ascii(stream: &mut TcpStream, frame: &[u8]) -> Result<String, Strin
             Ok(0) => break,
             Ok(n) => {
                 raw.extend_from_slice(&tmp[..n]);
-                // ASCII response: 14-char header + 4-char data_len + data_len chars
                 if raw.len() >= 18 {
                     if let Ok(s) = std::str::from_utf8(&raw) {
                         if let Ok(dl) = usize::from_str_radix(&s[14..18], 16) {
-                            if raw.len() >= 18 + dl {
-                                break;
-                            }
+                            if raw.len() >= 18 + dl { break; }
                         }
                     }
                 }
@@ -211,12 +197,6 @@ fn send_recv_ascii(stream: &mut TcpStream, frame: &[u8]) -> Result<String, Strin
     Ok(s)
 }
 
-/// ASCII response:
-/// [0..4]   "D000" subheader
-/// [4..6]   network  [6..8] PC  [8..12] I/O  [12..14] station
-/// [14..18] data_len (4 hex chars, includes end_code chars)
-/// [18..22] end_code (4 hex chars)
-/// [22..]   data (4 hex chars per word)
 fn extract_ascii_words(s: &str, count: usize) -> Result<Vec<i32>, String> {
     if s.len() < 22 {
         return Err(format!("ASCII回應太短: {} chars | {}", s.len(), s));
@@ -261,15 +241,11 @@ fn extract_ascii_bits(s: &str, count: usize) -> Result<Vec<bool>, String> {
     let data = &s[22..];
     let mut bits = Vec::with_capacity(count);
     for i in 0..count {
-        if i >= data.len() {
-            return Err("Bit資料不足".to_string());
-        }
+        if i >= data.len() { return Err("Bit資料不足".to_string()); }
         bits.push(&data[i..i + 1] != "0");
     }
     Ok(bits)
 }
-
-// ── Error descriptions ────────────────────────────────────────────────────────
 
 fn slmp_error_desc(code: u16) -> &'static str {
     match code {
@@ -287,23 +263,18 @@ fn slmp_error_desc(code: u16) -> &'static str {
 
 // ── Mode auto-detect ──────────────────────────────────────────────────────────
 
-#[derive(Clone, Copy, Debug)]
-enum DataMode { Binary, Ascii }
-
-/// Open ONE connection and detect mode on it.
-/// Returns the open stream so callers can reuse it for all subsequent reads.
-fn open_and_detect(ip: &str, port: u16) -> Result<(TcpStream, DataMode), String> {
+/// 開啟連線並偵測 Binary/ASCII 模式。
+/// 結果快取至 pool，後續 tick 不需重新偵測。
+fn open_and_detect(ip: &str, port: u16) -> Result<(TcpStream, MelsecMode), String> {
     let mut s = connect(ip, port)?;
-    // Binary probe: read D0
     let frame = build_bin_frame(0xA8, 0, 1, 0x0000);
     match send_recv_bin(&mut s, &frame) {
         Ok(raw) if !raw.is_empty() => {
             log::info!("[MELSEC] 偵測模式: Binary");
-            return Ok((s, DataMode::Binary));
+            return Ok((s, MelsecMode::Binary));
         }
         _ => {}
     }
-    // Binary failed — reconnect and probe ASCII
     log::info!("[MELSEC] Binary無回應，嘗試ASCII模式");
     drop(s);
     let mut s2 = connect(ip, port)?;
@@ -311,7 +282,7 @@ fn open_and_detect(ip: &str, port: u16) -> Result<(TcpStream, DataMode), String>
     match send_recv_ascii(&mut s2, &frame2) {
         Ok(resp) if !resp.is_empty() => {
             log::info!("[MELSEC] 偵測模式: ASCII");
-            Ok((s2, DataMode::Ascii))
+            Ok((s2, MelsecMode::Ascii))
         }
         _ => Err(
             "PLC無回應（Binary與ASCII均無回應）\n\
@@ -320,7 +291,7 @@ fn open_and_detect(ip: &str, port: u16) -> Result<(TcpStream, DataMode), String>
     }
 }
 
-// ── High-level read primitives ────────────────────────────────────────────────
+// ── Primitive reads ────────────────────────────────────────────────────────────
 
 fn read_word_bin(stream: &mut TcpStream, dev_code: u8, addr: u32) -> Result<i32, String> {
     let frame = build_bin_frame(dev_code, addr, 1, 0x0000);
@@ -334,203 +305,238 @@ fn read_word_bin(stream: &mut TcpStream, dev_code: u8, addr: u32) -> Result<i32,
         );
     }
     let data = extract_bin_data(&raw)?;
-    if data.len() < 2 {
-        return Err(format!("Word資料不足（{} bytes）", data.len()));
-    }
+    if data.len() < 2 { return Err(format!("Word資料不足（{} bytes）", data.len())); }
     Ok(i16::from_le_bytes([data[0], data[1]]) as i32)
-}
-
-fn read_dword_bin(stream: &mut TcpStream, dev_code: u8, addr: u32) -> Result<u32, String> {
-    let frame = build_bin_frame(dev_code, addr, 2, 0x0000);
-    let raw = send_recv_bin(stream, &frame)?;
-    if raw.is_empty() {
-        return Err("PLC無回應（0 bytes）".to_string());
-    }
-    let data = extract_bin_data(&raw)?;
-    if data.len() < 4 {
-        return Err(format!("DWORD資料不足（{} bytes）", data.len()));
-    }
-    Ok(u32::from_le_bytes([data[0], data[1], data[2], data[3]]))
-}
-
-fn read_bit_bin(stream: &mut TcpStream, dev_code: u8, addr: u32) -> Result<bool, String> {
-    let frame = build_bin_frame(dev_code, addr, 1, 0x0001);
-    let raw = send_recv_bin(stream, &frame)?;
-    if raw.is_empty() {
-        return Err("PLC無回應（0 bytes）".to_string());
-    }
-    let data = extract_bin_data(&raw)?;
-    if data.is_empty() {
-        return Err("Bit回應資料空".to_string());
-    }
-    Ok(data[0] & 0x0F != 0)
 }
 
 fn read_word_ascii(stream: &mut TcpStream, prefix: &str, addr: u32) -> Result<i32, String> {
     let code = device_code_ascii(prefix).ok_or_else(|| format!("不支援的裝置: {}", prefix))?;
     let frame = build_ascii_frame(code, &addr_ascii_str(prefix, addr), 1, 0x0000);
     let s = send_recv_ascii(stream, &frame)?;
-    if s.is_empty() {
-        return Err("PLC無回應（0 chars）".to_string());
-    }
+    if s.is_empty() { return Err("PLC無回應（0 chars）".to_string()); }
     let words = extract_ascii_words(&s, 1)?;
     Ok(words[0])
 }
 
-fn read_dword_ascii(stream: &mut TcpStream, prefix: &str, addr: u32) -> Result<u32, String> {
-    let code = device_code_ascii(prefix).ok_or_else(|| format!("不支援的裝置: {}", prefix))?;
-    let frame = build_ascii_frame(code, &addr_ascii_str(prefix, addr), 2, 0x0000);
-    let s = send_recv_ascii(stream, &frame)?;
-    if s.is_empty() {
-        return Err("PLC無回應（0 chars）".to_string());
-    }
-    let words = extract_ascii_words(&s, 2)?;
-    let lo = words[0] as u16 as u32;
-    let hi = words[1] as u16 as u32;
-    Ok(lo | (hi << 16))
+fn read_bit_bin(stream: &mut TcpStream, dev_code: u8, addr: u32) -> Result<bool, String> {
+    let frame = build_bin_frame(dev_code, addr, 1, 0x0001);
+    let raw = send_recv_bin(stream, &frame)?;
+    if raw.is_empty() { return Err("PLC無回應（0 bytes）".to_string()); }
+    let data = extract_bin_data(&raw)?;
+    if data.is_empty() { return Err("Bit回應資料空".to_string()); }
+    Ok(data[0] & 0x0F != 0)
 }
 
 fn read_bit_ascii(stream: &mut TcpStream, prefix: &str, addr: u32) -> Result<bool, String> {
     let code = device_code_ascii(prefix).ok_or_else(|| format!("不支援的裝置: {}", prefix))?;
     let frame = build_ascii_frame(code, &addr_ascii_str(prefix, addr), 1, 0x0001);
     let s = send_recv_ascii(stream, &frame)?;
-    if s.is_empty() {
-        return Err("PLC無回應（0 chars）".to_string());
-    }
+    if s.is_empty() { return Err("PLC無回應（0 chars）".to_string()); }
     let bits = extract_ascii_bits(&s, 1)?;
     Ok(bits[0])
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
+// ── Batch primitives ───────────────────────────────────────────────────────────
 
-pub fn read_batch(ip: &str, port: u16, requests: Vec<ReadRequest>) -> Vec<ReadResult> {
-    use std::collections::HashMap;
+/// 一次讀取 count 個連續 word（Binary 模式），回傳 i32 陣列。
+fn read_word_batch_bin(stream: &mut TcpStream, dev_code: u8, addr: u32, count: u16) -> Result<Vec<i32>, String> {
+    let frame = build_bin_frame(dev_code, addr, count, 0x0000);
+    let raw = send_recv_bin(stream, &frame)?;
+    if raw.is_empty() {
+        return Err(
+            "PLC無回應（0 bytes）\n\
+             可能原因：\n\
+             1. GX Works3 通信數據代碼設為ASCII（請改為Binary）\n\
+             2. 確認乙太網端口已設為「MELSEC通信協議」連接".to_string()
+        );
+    }
+    let data = extract_bin_data(&raw)?;
+    let needed = (count as usize) * 2;
+    if data.len() < needed {
+        return Err(format!("批次Word資料不足（需{}bytes，得{}bytes）", needed, data.len()));
+    }
+    Ok((0..count as usize)
+        .map(|i| i16::from_le_bytes([data[i * 2], data[i * 2 + 1]]) as i32)
+        .collect())
+}
 
-    // ONE connection for the entire batch — avoids FX5U connection-slot saturation.
-    let (mut stream, mode) = match open_and_detect(ip, port) {
-        Ok(pair) => pair,
-        Err(e) => {
-            return requests.iter().map(|r| ReadResult {
-                address: r.address.clone(), value: None, error: Some(e.clone()),
-            }).collect();
-        }
+/// 一次讀取 count 個連續 word（ASCII 模式），回傳 i32 陣列。
+fn read_word_batch_ascii(stream: &mut TcpStream, prefix: &str, addr: u32, count: u16) -> Result<Vec<i32>, String> {
+    let code = device_code_ascii(prefix).ok_or_else(|| format!("不支援裝置: {}", prefix))?;
+    let frame = build_ascii_frame(code, &addr_ascii_str(prefix, addr), count, 0x0000);
+    let s = send_recv_ascii(stream, &frame)?;
+    if s.is_empty() { return Err("PLC無回應（0 chars）".to_string()); }
+    extract_ascii_words(&s, count as usize)
+}
+
+// ── Batch read helpers ─────────────────────────────────────────────────────────
+
+fn is_io_err(e: &str) -> bool {
+    e.contains("寫入失敗") || e.contains("讀取失敗") || e.contains("無回應") || e.contains("連線失敗")
+}
+
+/// 執行一個 WordGroup 的批次讀取並填入 out 陣列。
+/// 回傳 true 表示發生 I/O 錯誤。
+fn exec_word_group(stream: &mut TcpStream, mode: MelsecMode, group: &WordGroup, out: &mut [ReadResult]) -> bool {
+    let count = (group.end - group.start) as u16;
+
+    let words_result: Result<Vec<i32>, String> = match mode {
+        MelsecMode::Binary => match device_code_bin(&group.prefix) {
+            Some(code) => read_word_batch_bin(stream, code, group.start, count),
+            None => Err(format!("不支援裝置: {}", group.prefix)),
+        },
+        MelsecMode::Ascii => read_word_batch_ascii(stream, &group.prefix, group.start, count),
     };
 
-    let mut biw_groups: HashMap<(String, u32), Vec<(String, u8)>> = HashMap::new();
-    let mut plain: Vec<ReadRequest> = Vec::new();
-
-    for req in &requests {
-        match parse_device_address(&req.address) {
-            Some(PlcDevice::BitInWord { prefix, num, bit }) => {
-                biw_groups.entry((prefix, num)).or_default().push((req.address.clone(), bit));
+    match words_result {
+        Err(e) => {
+            let io = is_io_err(&e);
+            for spec in &group.specs {
+                out[spec.req_idx] = ReadResult { address: spec.address.clone(), value: None, error: Some(e.clone()) };
             }
-            _ => plain.push(req.clone()),
+            io
+        }
+        Ok(words) => {
+            for spec in &group.specs {
+                let offset = (spec.num - group.start) as usize;
+                match extract_value(spec, &words, offset) {
+                    Ok(v) => out[spec.req_idx] = ReadResult { address: spec.address.clone(), value: Some(v), error: None },
+                    Err(e) => out[spec.req_idx] = ReadResult { address: spec.address.clone(), value: None, error: Some(e) },
+                }
+            }
+            false
+        }
+    }
+}
+
+// ── Main batch logic ───────────────────────────────────────────────────────────
+
+fn do_batch(stream: &mut TcpStream, mode: MelsecMode, requests: &[ReadRequest]) -> (Vec<ReadResult>, bool) {
+    use std::collections::HashMap;
+
+    let mut out: Vec<ReadResult> = requests.iter().map(|r| ReadResult {
+        address: r.address.clone(), value: None, error: Some("未讀取".to_string()),
+    }).collect();
+    let mut had_io = false;
+
+    let mut word_specs: Vec<WordSpec> = Vec::new();
+    let mut bool_list: Vec<(usize, String, u32, String)> = Vec::new();
+    let mut biw_map: HashMap<(String, u32), Vec<(usize, u8, String)>> = HashMap::new();
+
+    for (idx, req) in requests.iter().enumerate() {
+        match parse_device_address(&req.address) {
+            Some(PlcDevice::Word { prefix, num }) => {
+                let wn = match req.data_type.to_uppercase().as_str() {
+                    "DWORD" | "UDINT" | "DINT" | "FLOAT" => 2,
+                    _ => 1,
+                };
+                word_specs.push(WordSpec {
+                    req_idx: idx, prefix, num, words_needed: wn,
+                    data_type: req.data_type.clone(), address: req.address.clone(),
+                });
+            }
+            Some(PlcDevice::Bool { prefix, num }) => {
+                bool_list.push((idx, prefix, num, req.address.clone()));
+            }
+            Some(PlcDevice::BitInWord { prefix, num, bit }) => {
+                biw_map.entry((prefix, num)).or_default().push((idx, bit, req.address.clone()));
+            }
+            None => {
+                out[idx].error = Some(format!("無效位址: {}", req.address));
+            }
         }
     }
 
-    // All plain reads share the same stream
-    let mut results: Vec<ReadResult> = plain
-        .into_iter()
-        .map(|req| match read_one(&mut stream, &req, mode) {
-            Ok(v)  => ReadResult { address: req.address.clone(), value: Some(v),  error: None },
-            Err(e) => ReadResult { address: req.address.clone(), value: None,      error: Some(e) },
-        })
-        .collect();
+    // 批次讀取連續 WORD 地址
+    for group in build_word_groups(word_specs) {
+        if exec_word_group(stream, mode, &group, &mut out) { had_io = true; }
+    }
 
-    // BitInWord: read each unique word once on the same stream
-    for ((prefix, num), bits) in biw_groups {
-        let word_result: Result<i32, String> = match mode {
-            DataMode::Binary => {
-                device_code_bin(&prefix)
-                    .ok_or_else(|| format!("不支援的裝置: {}", prefix))
-                    .and_then(|code| read_word_bin(&mut stream, code, num))
-            }
-            DataMode::Ascii => read_word_ascii(&mut stream, &prefix, num),
+    // 逐一讀取 BOOL
+    for (idx, prefix, num, addr) in &bool_list {
+        let r = match mode {
+            MelsecMode::Binary => device_code_bin(prefix)
+                .ok_or_else(|| format!("不支援裝置: {}", prefix))
+                .and_then(|code| read_bit_bin(stream, code, *num))
+                .map(|b| if b { "ON" } else { "OFF" }.to_string()),
+            MelsecMode::Ascii => read_bit_ascii(stream, prefix, *num)
+                .map(|b| if b { "ON" } else { "OFF" }.to_string()),
         };
+        match r {
+            Ok(v) => out[*idx] = ReadResult { address: addr.clone(), value: Some(v), error: None },
+            Err(e) => {
+                if is_io_err(&e) { had_io = true; }
+                out[*idx] = ReadResult { address: addr.clone(), value: None, error: Some(e) };
+            }
+        }
+    }
 
+    // BitInWord：每個 Word 只讀一次，提取多個 bit
+    for ((prefix, num), bits) in &biw_map {
+        let word_result: Result<i32, String> = match mode {
+            MelsecMode::Binary => device_code_bin(prefix)
+                .ok_or_else(|| format!("不支援裝置: {}", prefix))
+                .and_then(|code| read_word_bin(stream, code, *num)),
+            MelsecMode::Ascii => read_word_ascii(stream, prefix, *num),
+        };
         match word_result {
             Ok(raw_word) => {
-                for (addr, bit) in &bits {
+                for (idx, bit, addr) in bits {
                     let on = (raw_word >> *bit) & 1 == 1;
-                    results.push(ReadResult {
+                    out[*idx] = ReadResult {
                         address: addr.clone(),
                         value: Some(if on { "ON" } else { "OFF" }.to_string()),
                         error: None,
-                    });
+                    };
                 }
             }
             Err(e) => {
-                for (addr, _) in &bits {
-                    results.push(ReadResult {
-                        address: addr.clone(), value: None, error: Some(e.clone()),
-                    });
+                if is_io_err(&e) { had_io = true; }
+                for (idx, _, addr) in bits {
+                    out[*idx] = ReadResult { address: addr.clone(), value: None, error: Some(e.clone()) };
                 }
             }
         }
     }
 
-    let order: HashMap<&str, usize> = requests
-        .iter()
-        .enumerate()
-        .map(|(i, r)| (r.address.as_str(), i))
-        .collect();
-    results.sort_by_key(|r| order.get(r.address.as_str()).copied().unwrap_or(usize::MAX));
-    results
+    (out, had_io)
 }
 
-fn read_one(stream: &mut TcpStream, req: &ReadRequest, mode: DataMode) -> Result<String, String> {
-    log::debug!("[MELSEC {:?}] {} {}", mode, req.data_type, req.address);
+// ── Public API ─────────────────────────────────────────────────────────────────
 
-    let device = parse_device_address(&req.address)
-        .ok_or_else(|| format!("無效位址: {}", req.address))?;
+pub fn read_batch(ip: &str, port: u16, requests: Vec<ReadRequest>) -> Vec<ReadResult> {
+    use super::pool;
 
-    match (&device, mode) {
-        (PlcDevice::Bool { prefix, num }, DataMode::Binary) => {
-            let code = device_code_bin(prefix).ok_or_else(|| format!("不支援: {}", prefix))?;
-            read_bit_bin(stream, code, *num)
-                .map(|b| if b { "ON" } else { "OFF" }.to_string())
-        }
-        (PlcDevice::Word { prefix, num }, DataMode::Binary) => {
-            let code = device_code_bin(prefix).ok_or_else(|| format!("不支援: {}", prefix))?;
-            match req.data_type.to_uppercase().as_str() {
-                "DWORD" | "UDINT" => read_dword_bin(stream, code, *num).map(|v| v.to_string()),
-                "DINT" => read_dword_bin(stream, code, *num).map(|v| (v as i32).to_string()),
-                "FLOAT" => {
-                    let v = read_dword_bin(stream, code, *num)?;
-                    Ok(format!("{:.6}", f32::from_bits(v)))
-                }
-                // read_word_bin returns i16 as i32 (already signed); INT is correct as-is
-                "INT" => read_word_bin(stream, code, *num).map(|v| v.to_string()),
-                // UINT / WORD: cast i16 back to u16 to show unsigned 0-65535
-                "UINT" | "WORD" => read_word_bin(stream, code, *num).map(|v| (v as u16).to_string()),
-                _ => read_word_bin(stream, code, *num).map(|v| v.to_string()),
+    let mk_err = |e: &str| requests.iter().map(|r| ReadResult {
+        address: r.address.clone(), value: None, error: Some(e.to_string()),
+    }).collect::<Vec<_>>();
+
+    // 嘗試從 pool 取得既有連線（含已偵測的模式），否則重新偵測
+    let (mut stream, mode, was_pooled) = match pool::melsec_take(ip, port) {
+        Some((s, m)) => (s, m, true),
+        None => match open_and_detect(ip, port) {
+            Ok((s, m)) => (s, m, false),
+            Err(e) => return mk_err(&e),
+        },
+    };
+
+    let (results, had_io) = do_batch(&mut stream, mode, &requests);
+
+    // 若從 pool 取出的舊連線發生 I/O 錯誤，以新連線重試一次（含模式重偵測）
+    if had_io && was_pooled {
+        drop(stream);
+        return match open_and_detect(ip, port) {
+            Err(e) => mk_err(&e),
+            Ok((mut fresh, new_mode)) => {
+                let (r2, _) = do_batch(&mut fresh, new_mode, &requests);
+                pool::melsec_put(ip, port, fresh, new_mode);
+                r2
             }
-        }
-        (PlcDevice::BitInWord { prefix, num, bit }, DataMode::Binary) => {
-            let code = device_code_bin(prefix).ok_or_else(|| format!("不支援: {}", prefix))?;
-            let raw = read_word_bin(stream, code, *num)?;
-            Ok(if (raw >> *bit) & 1 == 1 { "ON" } else { "OFF" }.to_string())
-        }
-        (PlcDevice::Bool { prefix, num }, DataMode::Ascii) => {
-            read_bit_ascii(stream, prefix, *num)
-                .map(|b| if b { "ON" } else { "OFF" }.to_string())
-        }
-        (PlcDevice::Word { prefix, num }, DataMode::Ascii) => {
-            match req.data_type.to_uppercase().as_str() {
-                "DWORD" | "UDINT" => read_dword_ascii(stream, prefix, *num).map(|v| v.to_string()),
-                "DINT" => read_dword_ascii(stream, prefix, *num).map(|v| (v as i32).to_string()),
-                "FLOAT" => {
-                    let v = read_dword_ascii(stream, prefix, *num)?;
-                    Ok(format!("{:.6}", f32::from_bits(v)))
-                }
-                "INT" => read_word_ascii(stream, prefix, *num).map(|v| v.to_string()),
-                "UINT" | "WORD" => read_word_ascii(stream, prefix, *num).map(|v| (v as u16).to_string()),
-                _ => read_word_ascii(stream, prefix, *num).map(|v| v.to_string()),
-            }
-        }
-        (PlcDevice::BitInWord { prefix, num, bit }, DataMode::Ascii) => {
-            let raw = read_word_ascii(stream, prefix, *num)?;
-            Ok(if (raw >> *bit) & 1 == 1 { "ON" } else { "OFF" }.to_string())
-        }
+        };
     }
+
+    // 正常完成：歸還連線供下次 tick 使用
+    if !had_io { pool::melsec_put(ip, port, stream, mode); }
+
+    results
 }

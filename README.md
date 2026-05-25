@@ -61,6 +61,8 @@
   - **三菱**：SLMP / MC Protocol 3E Frame（QnU / iQ-R / iQ-F），Binary / ASCII 兩種模式，預設 Port 502
 - 資料類型支援：BOOL、INT（有符號 16 位元）、UINT / WORD（無符號 16 位元）、DWORD / UDINT（32 位元）、DINT（有符號 32 位元）、FLOAT（32 位元浮點）
 - 設備需在編輯面板中設定 **IP 位址**、**Port** 及 **PLC 品牌** 才可啟用監控
+- **連線池（Connection Pool）**：TCP 連線在 tick 之間複用，避免每次輪詢重建連線握手；三菱 Binary/ASCII 模式偵測結果同步快取，無需每次重新探測
+- **批次地址讀取**：同一台設備內相鄰（間距 ≤ 4 words）的 Word 地址自動合併為單一 `RDS` / Batch Read 請求（最多 100 words），大幅減少 TCP round-trip 次數
 
 ## 快速開始
 
@@ -142,6 +144,8 @@ npm run build
     │   └── plc/
     │       ├── mod.rs          # PLC 通訊介面（read_batch dispatch）
     │       ├── address.rs      # 位址解析（Bool/Word/BitInWord）
+    │       ├── pool.rs         # TCP 連線池（KEYENCE / 三菱，含模式快取）
+    │       ├── batch.rs        # 連續地址合併算法（build_word_groups / extract_value）
     │       ├── keyence.rs      # KEYENCE KV Upper-Link Protocol
     │       └── mitsubishi.rs   # 三菱 SLMP / MC Protocol 3E Frame
     └── tauri.conf.json         # 視窗設定、Bundle 設定
